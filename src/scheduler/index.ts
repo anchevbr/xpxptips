@@ -8,6 +8,7 @@ import { alreadyPosted } from './dedup';
 import { tomorrowUtc, todayUtc, formatAthensDateTimeCompact } from '../utils/date';
 import { withRetry } from '../utils/retry';
 import { saveFixtures, loadFixtures } from '../utils/checkpoint';
+import { runWeeklyReport, runMonthlyReport, isFirstMondayOfMonth } from '../reports';
 import type { Fixture } from '../types';
 
 // ─── Per-fixture job ──────────────────────────────────────────────────────────
@@ -189,8 +190,32 @@ export function startScheduler(): void {
     { timezone }
   );
 
+  // ── Monday 10:00 Athens — weekly (and optionally monthly) reports ──────────
+  cron.schedule(
+    '0 10 * * 1',
+    async () => {
+      // Weekly report — always runs every Monday
+      try {
+        await runWeeklyReport();
+      } catch (err) {
+        logger.error(`[scheduler] weekly report failed: ${String(err)}`);
+      }
+
+      // Monthly report — only on the first Monday of a new calendar month
+      if (isFirstMondayOfMonth()) {
+        try {
+          await runMonthlyReport();
+        } catch (err) {
+          logger.error(`[scheduler] monthly report failed: ${String(err)}`);
+        }
+      }
+    },
+    { timezone }
+  );
+
   logger.info(
     `[scheduler] planning cron registered — will run: "${planningCron}" (${timezone}), ` +
     `posting each fixture ${config.scheduler.hoursBeforeKickoff}h before kickoff`
   );
+  logger.info(`[scheduler] report cron registered — every Monday 10:00 ${timezone}`);
 }

@@ -42,7 +42,7 @@ ALL text fields in your JSON output must be written in Greek, without exception:
 - <b>riskFactors</b>: Greek — never write English disclaimers or odds warnings here
 - <b>noPickReason</b>: Greek
 - <b>finalPick</b>: use short Greek/common betting shorthand — "Άσσος" (home win), "Ισοπαλία" (draw), "Διπλό" (away win), "X2", "1X", "G/G", "Over 2.5", "Under 2.5", "Over 215.5" etc. Max 4 words, never a full sentence
-- <b>bestBettingMarket</b>: standard market identifier, e.g. "Match Winner", "Both Teams to Score", "Total Over 2.5"
+- **bestBettingMarket**: Machine-readable token — output EXACTLY one of the enum values from the schema. Soccer: "h2h/home", "h2h/draw", "h2h/away", "totals/over", "totals/under", "btts/yes", "btts/no". Basketball: "h2h/home", "h2h/away", "totals/over", "totals/under". Do NOT write free text, team names, or anything else.
 
 Tone rules for shortReasoning:
 - Friendly, natural, and warm — like a knowledgeable sports friend posting in a Telegram group

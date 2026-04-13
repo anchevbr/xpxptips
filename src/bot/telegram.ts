@@ -47,6 +47,26 @@ export async function sendToGroup(text: string): Promise<void> {
 }
 
 /**
+ * Sends a message to the configured group chat and pins it,
+ * replacing whatever was previously pinned.
+ */
+export async function sendAndPinInGroup(text: string): Promise<void> {
+  const b = createBot();
+  try {
+    const msg = await b.telegram.sendMessage(config.telegram.groupChatId, text, {
+      parse_mode: 'HTML',
+      link_preview_options: { is_disabled: true },
+    });
+    await b.telegram.pinChatMessage(config.telegram.groupChatId, msg.message_id, {
+      disable_notification: true,
+    });
+  } catch (err) {
+    logger.error(`[telegram] sendAndPinInGroup failed: ${String(err)}`);
+    throw err;
+  }
+}
+
+/**
  * Starts the bot in long-polling mode (needed to keep the process alive and
  * receive the webhook / polling token) and handles graceful shutdown.
  */

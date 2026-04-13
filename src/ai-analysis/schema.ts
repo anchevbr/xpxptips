@@ -67,9 +67,12 @@ export function buildExpertAnalysisSchema(isSoccer: boolean) {
       },
       bestBettingMarket: {
         type: 'string',
+        enum: isSoccer
+          ? ['h2h/home', 'h2h/draw', 'h2h/away', 'totals/over', 'totals/under', 'btts/yes', 'btts/no']
+          : ['h2h/home', 'h2h/away', 'totals/over', 'totals/under'],
         description: isSoccer
-          ? 'The betting market identifier, e.g. "Match Winner", "Both Teams to Score", "Total Over 2.5"'
-          : 'The betting market identifier — basketball only supports: "Match Winner" (home/away, NO draw) or "Total Over/Under [line]". Do NOT use "Both Teams to Score", "Draw", or "Asian Handicap" — these do not exist in basketball.',
+          ? 'Machine-readable market token — pick exactly one. "h2h/home"=home team wins, "h2h/draw"=draw, "h2h/away"=away team wins, "totals/over"=over the line, "totals/under"=under the line, "btts/yes"=both teams score, "btts/no"=clean sheet.'
+          : 'Machine-readable market token — pick exactly one. "h2h/home"=home team wins, "h2h/away"=away team wins, "totals/over"=over the line, "totals/under"=under the line. No draw, no BTTS in basketball.',
       },
       finalPick: {
         type: 'string',

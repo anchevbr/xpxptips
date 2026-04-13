@@ -131,60 +131,20 @@ export function normalizeMarket(m: string): string {
   return m.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/**
- * Parses the AI's market recommendation into The Odds API format.
- *
- * Examples:
- *   "Match Winner: Home"        → { marketKey: 'h2h', outcomeName: fixture.homeTeam }
- *   "Match Winner: Man United"  → { marketKey: 'h2h', outcomeName: 'Man United' }
- *   "Total Over 2.5"            → { marketKey: 'totals', outcomeName: 'Over' }
- *   "Total Under 215.5"         → { marketKey: 'totals', outcomeName: 'Under' }
- *   "Draw"                      → { marketKey: 'h2h', outcomeName: 'Draw' }
- */
 function parseMarketString(
   market: string,
   fixture: Fixture
 ): { marketKey: string; outcomeName: string } | { marketKey: null; outcomeName: null } {
-  const norm = normalizeMarket(market);
-
-  // Match Winner / H2H markets
-  if (
-    norm.includes('match winner') ||
-    norm.includes('moneyline') ||
-    norm.includes('1x2') ||
-    norm.includes('winner')
-  ) {
-    // Extract team or outcome
-    if (norm.includes('home')) return { marketKey: 'h2h', outcomeName: fixture.homeTeam };
-    if (norm.includes('away')) return { marketKey: 'h2h', outcomeName: fixture.awayTeam };
-    if (norm.includes('draw')) return { marketKey: 'h2h', outcomeName: 'Draw' };
-
-    // Check if it mentions a specific team name
-    const homeNorm = normalizeMarket(fixture.homeTeam);
-    const awayNorm = normalizeMarket(fixture.awayTeam);
-    if (norm.includes(homeNorm)) return { marketKey: 'h2h', outcomeName: fixture.homeTeam };
-    if (norm.includes(awayNorm)) return { marketKey: 'h2h', outcomeName: fixture.awayTeam };
+  switch (market.trim().toLowerCase()) {
+    case 'h2h/home':    return { marketKey: 'h2h',    outcomeName: fixture.homeTeam };
+    case 'h2h/draw':    return { marketKey: 'h2h',    outcomeName: 'Draw' };
+    case 'h2h/away':    return { marketKey: 'h2h',    outcomeName: fixture.awayTeam };
+    case 'totals/over': return { marketKey: 'totals', outcomeName: 'Over' };
+    case 'totals/under':return { marketKey: 'totals', outcomeName: 'Under' };
+    case 'btts/yes':    return { marketKey: 'btts',   outcomeName: 'Yes' };
+    case 'btts/no':     return { marketKey: 'btts',   outcomeName: 'No' };
+    default:
+      logger.warn(`[odds] unable to parse market: "${market}"`);
+      return { marketKey: null, outcomeName: null };
   }
-
-  // Draw market
-  if (norm === 'draw' || norm === 'the draw') {
-    return { marketKey: 'h2h', outcomeName: 'Draw' };
-  }
-
-  // Totals / Over-Under markets
-  if (norm.includes('total') || norm.includes('over') || norm.includes('under')) {
-    if (norm.includes('over')) return { marketKey: 'totals', outcomeName: 'Over' };
-    if (norm.includes('under')) return { marketKey: 'totals', outcomeName: 'Under' };
-  }
-
-  // Both Teams to Score (football)
-  if (norm.includes('btts') || norm.includes('both teams to score') || norm.includes('g/g')) {
-    if (norm.includes('yes') || norm === 'btts' || norm === 'g/g') {
-      return { marketKey: 'btts', outcomeName: 'Yes' };
-    }
-    if (norm.includes('no')) return { marketKey: 'btts', outcomeName: 'No' };
-  }
-
-  logger.warn(`[odds] unable to parse market: "${market}"`);
-  return { marketKey: null, outcomeName: null };
 }

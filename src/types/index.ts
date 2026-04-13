@@ -176,3 +176,27 @@ export interface DailyReport {
   totalAnalyzed: number;
   totalPublished: number;
 }
+
+// ─── Pick Records (for weekly/monthly reports) ────────────────────────────────
+
+export interface PickRecord {
+  /** Internal fixture ID, e.g. "sportsdb_2453351" */
+  fixtureId: string;
+  /** Match date YYYY-MM-DD */
+  date: string;
+  league: string;
+  homeTeam: string;
+  awayTeam: string;
+  /** ISO datetime when the tip was posted to Telegram */
+  postedAt: string;
+  /** Human-readable pick sent to Telegram, e.g. "Άσσος", "Under 2.5" */
+  finalPick: string;
+  /** Machine token used for outcome resolution, e.g. "h2h/home", "totals/under" */
+  bestBettingMarket: string;
+  confidence: number;
+  /** null = pending (match not yet played), populated after resolution */
+  outcome: 'win' | 'loss' | 'void' | null;
+  /** Final score string, e.g. "2-1" — populated after resolution */
+  actualScore: string | null;
+  resolvedAt: string | null;
+}

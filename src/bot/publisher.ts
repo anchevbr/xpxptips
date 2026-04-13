@@ -9,6 +9,7 @@
 import { sendToGroup } from './telegram';
 import { formatTip } from './formatter';
 import { markPosted } from '../scheduler/dedup';
+import { addPick } from '../reports/picks-store';
 import { logger, picksLogger } from '../utils/logger';
 import { sleep } from '../utils/retry';
 import type { AnalysisResult } from '../ai-analysis';
@@ -29,6 +30,23 @@ export async function publishSingleResult(
   try {
     await sendToGroup(formatted.text);
     markPosted(matchData.fixture.id, date, matchData.fixture.competition);
+
+    // Persist to picks-log for weekly/monthly reports
+    addPick({
+      fixtureId: matchData.fixture.id,
+      date,
+      league: matchData.fixture.league,
+      homeTeam: matchData.fixture.homeTeam,
+      awayTeam: matchData.fixture.awayTeam,
+      postedAt: new Date().toISOString(),
+      finalPick: analysis.finalPick,
+      bestBettingMarket: analysis.bestBettingMarket,
+      confidence: analysis.confidence,
+      outcome: null,
+      actualScore: null,
+      resolvedAt: null,
+    });
+
     logger.info(
       `[publisher] posted: ${matchData.fixture.homeTeam} vs ${matchData.fixture.awayTeam} (${analysis.confidence}/10)`
     );
