@@ -213,9 +213,9 @@ export function startScheduler(): void {
     { timezone }
   );
 
-  logger.info(
-    `[scheduler] planning cron registered — will run: "${planningCron}" (${timezone}), ` +
+  logger.info(`[scheduler] planning cron registered — will run: "${planningCron}" (${timezone}), ` +
     `posting each fixture ${config.scheduler.hoursBeforeKickoff}h before kickoff`
   );
   logger.info(`[scheduler] report cron registered — every Monday 10:00 ${timezone}`);
+  logger.info(`[scheduler] halftime updates: per-fixture setTimeout (no cron)`);
 }

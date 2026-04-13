@@ -185,6 +185,8 @@ function seedPicksFromCheckpoints(targetDate: string): void {
       outcome: null,
       actualScore: null,
       resolvedAt: null,
+      halfTimeNotifiedAt: null,
+      fullTimeNotifiedAt: null,
     };
 
     addPick(record);

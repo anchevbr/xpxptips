@@ -71,6 +71,34 @@ export function updateOutcome(
 }
 
 /**
+ * Marks a pick as having received its halftime Telegram update.
+ */
+export function updateHalftimeNotified(fixtureId: string): void {
+  const picks = readPicks();
+  const idx = picks.findIndex(p => p.fixtureId === fixtureId);
+  if (idx < 0) {
+    logger.warn(`[picks-store] cannot mark halftime — not found: ${fixtureId}`);
+    return;
+  }
+  picks[idx]!.halfTimeNotifiedAt = new Date().toISOString();
+  writePicks(picks);
+}
+
+/**
+ * Marks a pick as having received its full-time Telegram update.
+ */
+export function updateFulltimeNotified(fixtureId: string): void {
+  const picks = readPicks();
+  const idx = picks.findIndex(p => p.fixtureId === fixtureId);
+  if (idx < 0) {
+    logger.warn(`[picks-store] cannot mark fulltime — not found: ${fixtureId}`);
+    return;
+  }
+  picks[idx]!.fullTimeNotifiedAt = new Date().toISOString();
+  writePicks(picks);
+}
+
+/**
  * Returns all picks whose match date falls within [from, to] inclusive.
  * Dates are YYYY-MM-DD strings.
  */

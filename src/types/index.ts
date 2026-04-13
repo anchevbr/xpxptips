@@ -199,4 +199,8 @@ export interface PickRecord {
   /** Final score string, e.g. "2-1" — populated after resolution */
   actualScore: string | null;
   resolvedAt: string | null;
+  /** ISO datetime when the halftime update was sent to Telegram — null if not yet sent */
+  halfTimeNotifiedAt: string | null;
+  /** ISO datetime when the full-time update was sent to Telegram — null if not yet sent */
+  fullTimeNotifiedAt: string | null;
 }
