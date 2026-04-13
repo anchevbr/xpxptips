@@ -49,7 +49,7 @@ src/
 
 The bot uses a **two-phase scheduling model**:
 
-**Phase A — Planning job** (default: 2:00 AM UTC nightly via `PLANNING_CRON`):
+**Phase A — Planning job** (default: 2:00 AM Athens time via `PLANNING_CRON`):
 1. Fetches tomorrow's fixtures from TheSportsDB
 2. Checkpoints them to disk (survives a restart)
 3. Schedules a **per-fixture analysis job** for each match, timed to fire `HOURS_BEFORE_KICKOFF` hours before kickoff (default: 8 hours)
@@ -189,8 +189,8 @@ The Greek phrasing is controlled via `EXPERT_DEVELOPER_PROMPT` in `src/ai-analys
 | `OPENAI_SCREENING_EFFORT` | `medium` | Reasoning effort for screening phase |
 | `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for expert analysis |
 | `OPENAI_TIMEOUT_MS` | `90000` | Per-call timeout in ms — fixture skipped on expiry |
-| `PLANNING_CRON` | `0 2 * * *` | Cron for nightly planning job (2:00 AM UTC) |
-| `TIMEZONE` | `UTC` | Cron timezone |
+| `PLANNING_CRON` | `0 2 * * *` | Cron for nightly planning job (2:00 AM Athens time) |
+| `TIMEZONE` | `Europe/Athens` | Cron timezone |
 | `HOURS_BEFORE_KICKOFF` | `8` | How many hours before kickoff to post the tip |
 | `MIN_INTEREST_SCORE` | `5` | Min screening score to trigger deep analysis |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Min AI confidence to publish a tip |
