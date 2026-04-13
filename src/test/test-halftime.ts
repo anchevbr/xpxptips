@@ -15,10 +15,10 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import { logger } from './utils/logger';
-import { generateHalftimeNarrative } from './halftime/narrator';
-import { sendToGroup } from './bot/telegram';
-import type { PickRecord, BettingAnalysis } from './types';
+import { logger } from '../utils/logger';
+import { generateHalftimeNarrative } from '../halftime/narrator';
+import { sendToGroup } from '../bot/telegram';
+import type { PickRecord, BettingAnalysis } from '../types';
 
 const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
 

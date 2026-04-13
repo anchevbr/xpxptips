@@ -11,8 +11,8 @@
  *             runs/posts only what is missing — as if recovering from crash.
  *
  * Usage:
- *   Phase 1:  npx ts-node src/crash-test.ts
- *   Phase 2:  npx ts-node src/crash-test.ts
+ *   Phase 1:  npx ts-node src/test/crash-test.ts
+ *   Phase 2:  npx ts-node src/test/crash-test.ts
  *   (the script auto-detects which phase to run based on checkpoint presence)
  *
  * Env overrides (all optional):
@@ -23,13 +23,13 @@
 import 'dotenv/config';
 import path from 'path';
 import fs from 'fs';
-import { logger } from './utils/logger';
-import { fetchTodayFixtures } from './sports/fixtures';
-import { saveFixtures, loadFixtures } from './utils/checkpoint';
-import { runFullAnalysisPipeline } from './ai-analysis';
-import { publishSingleResult } from './bot/publisher';
-import { alreadyPosted } from './scheduler/dedup';
-import { config } from './config';
+import { logger } from '../utils/logger';
+import { fetchTodayFixtures } from '../sports/fixtures';
+import { saveFixtures, loadFixtures } from '../utils/checkpoint';
+import { runFullAnalysisPipeline } from '../ai-analysis';
+import { publishSingleResult } from '../bot/publisher';
+import { alreadyPosted } from '../scheduler/dedup';
+import { config } from '../config';
 
 // ── Config ────────────────────────────────────────────────────────────────────
 

@@ -1,330 +1,624 @@
 # AI Betting Bot
 
-A production-grade **broadcast-only Telegram group bot** that publishes **analytical betting opinions based on structured sports data**, written in **Greek** with a friendly, group-style tone — powered by OpenAI `gpt-5.4` for screening and expert analysis, `gpt-5.4-mini` for odds event matching, and **The Odds API** for real-time market verification from 40+ European bookmakers.
+AI Betting Bot is a broadcast-only Telegram bot for football and basketball picks. It does not chat with users, answer commands, or act like an assistant inside the group. Its job is to run a structured betting-analysis pipeline, publish only the picks that pass hard gates, and then follow those picks with live halftime and full-time updates plus pinned weekly and monthly reports.
 
-The bot does not chat with users, answer commands, or behave like an assistant. It acts like a curated feed: shortly before each fixture it posts one well-reasoned tip — or stays silent when nothing passes all quality gates.
+This repository is built around three ideas:
 
----
+- sports data should come from providers first, not from the model,
+- AI should be used for reasoning and explanation, not for inventing facts,
+- operational state should survive restarts through checkpoints and persistent logs.
 
-## Architecture overview
+## Current feature set
 
-```
+- Pre-match tip generation for football and basketball fixtures.
+- Two-stage AI analysis: screening first, deep expert analysis second.
+- Real bookmaker market validation before a tip can be published.
+- Broadcast-only Telegram posting with HTML formatting and disabled link previews.
+- Automatic halftime updates for each published fixture.
+- Automatic full-time updates for each published fixture.
+- Weekly report posting every Monday.
+- Monthly report posting on the first Monday of each month.
+- Pinning for weekly/monthly reports.
+- Checkpoint-based crash recovery for fixture discovery, screening, and expert analysis.
+- Manual test entry scripts under `src/test/` for end-to-end and feature-specific validation.
+
+## High-level architecture
+
+```text
 src/
-├── index.ts                        Entry point — launches bot + scheduler
-├── config.ts                       Centralised env-var config
-├── types/index.ts                  All TypeScript interfaces
-├── utils/
-│   ├── logger.ts                   Winston logger + picksLogger (audit log)
-│   ├── retry.ts                    Exponential back-off retry
-│   ├── date.ts                     Date/time helpers (UTC + Athens timezone)
-│   └── checkpoint.ts               Fixtures checkpoint (survives restarts)
-├── sports/
-│   ├── fixtures.ts                 Fetches tomorrow's scheduled fixtures
-│   ├── enrichment.ts               Enriches fixtures with odds + structured context
-│   └── providers/
-│       ├── thesportsdb-fixtures.ts TheSportsDB fixture fetch (free, no key required)
-│       ├── thesportsdb-enrichment.ts Form, H2H, injuries, schedule fatigue
-│       └── odds-api.ts             The Odds API — real-time odds, 40+ bookmakers
+├── index.ts
+├── config.ts
 ├── ai-analysis/
-│   ├── schema.ts                   Sport-aware JSON Schema (soccer vs basketball)
-│   ├── prompts.ts                  System/user prompt builders — sport-aware odds section
-│   ├── screener.ts                 Phase 1 — fast screening (medium reasoning effort)
-│   ├── expert.ts                   Phase 2 — deep expert analysis (high/xhigh effort)
-│   ├── validator.ts                Response validation & hallucination guard
-│   └── index.ts                    Pipeline orchestrator + 6-gate publication check
-├── odds/
-│   └── index.ts                    Gate 5 — market availability & min-odds verification
+│   ├── index.ts
+│   ├── screener.ts
+│   ├── expert.ts
+│   ├── prompts.ts
+│   ├── schema.ts
+│   └── validator.ts
 ├── bot/
-│   ├── formatter.ts                Telegram HTML message formatter (Greek UI)
-│   ├── publisher.ts                Sends approved tips to the Telegram group
-│   └── telegram.ts                 Bot setup (broadcast-only), group sender
-└── scheduler/
-    ├── dedup.ts                    Deduplication — prevents double-posting
-    └── index.ts                    Planning cron + per-fixture pre-match jobs
+│   ├── telegram.ts
+│   ├── publisher.ts
+│   └── formatter.ts
+├── fulltime/
+│   ├── index.ts
+│   ├── watcher.ts
+│   ├── narrator.ts
+│   └── stats-fetcher.ts
+├── halftime/
+│   ├── index.ts
+│   ├── watcher.ts
+│   ├── narrator.ts
+│   └── stats-fetcher.ts
+├── odds/
+│   └── index.ts
+├── reports/
+│   ├── index.ts
+│   ├── picks-store.ts
+│   ├── result-fetcher.ts
+│   ├── result-resolver.ts
+│   ├── report-generator.ts
+│   └── report-formatter.ts
+├── scheduler/
+│   ├── index.ts
+│   └── dedup.ts
+├── sports/
+│   ├── fixtures.ts
+│   ├── enrichment.ts
+│   └── providers/
+│       ├── thesportsdb-fixtures.ts
+│       ├── thesportsdb-enrichment.ts
+│       └── odds-api.ts
+├── test/
+│   ├── test-runner.ts
+│   ├── test-report.ts
+│   ├── test-halftime.ts
+│   ├── test-fulltime.ts
+│   └── crash-test.ts
+├── types/
+│   └── index.ts
+└── utils/
+    ├── checkpoint.ts
+    ├── date.ts
+    ├── logger.ts
+    └── retry.ts
 ```
 
----
+## End-to-end runtime flow
 
-## How the scheduling works
+### 1. Process startup
 
-The bot uses a **two-phase scheduling model**:
+`src/index.ts` loads configuration, launches the Telegram bot in long-polling mode, and starts the scheduler.
 
-**Phase A — Planning job** (default: 2:00 AM Athens time via `PLANNING_CRON`):
-1. Fetches tomorrow's fixtures from TheSportsDB
-2. Checkpoints them to disk (survives a restart)
-3. Schedules a **per-fixture analysis job** for each match, timed to fire `HOURS_BEFORE_KICKOFF` hours before kickoff (default: 8 hours)
+The Telegram client is intentionally minimal:
 
-**Phase B — Per-fixture job** (fires automatically at scheduled time):
-1. Live web search via `gpt-5.4` to fetch latest form, injuries, standings
-2. TheSportsDB enrichment — structured form, H2H, schedule fatigue
-3. The Odds API — real-time odds for all available markets
-4. Two-phase AI analysis (screening → expert)
-5. Six-gate publication check
-6. If all gates pass → post to Telegram, log to picks audit file
+- no commands are registered,
+- no replies are sent to users,
+- all send operations go to the configured group chat,
+- reports can be pinned through `sendAndPinInGroup()`.
 
-On startup the scheduler also **recovers any jobs from today's checkpoint** in case the process was restarted mid-day.
+### 2. Planning job
 
----
+The planning job runs on `PLANNING_CRON` in `TIMEZONE`.
 
-## Two-phase AI pipeline
+Its job is to:
 
-| Phase | Model | Reasoning effort | Purpose |
-|-------|-------|------------------|---------|
-| 1 — Screening | `gpt-5.4` | `medium` | Score all fixtures 0–10, select best 3–5 candidates |
-| 2 — Expert analysis | `gpt-5.4` | `high` / `xhigh` | Full professional betting analysis on shortlisted matches |
-| Odds event matching | `gpt-5.4-mini` | `low` | Match TheSportsDB team names → The Odds API canonical names |
+1. determine the target date,
+2. fetch fixtures from TheSportsDB,
+3. write those fixtures to checkpoint storage,
+4. schedule a per-fixture pre-match job for each fixture at `kickoff - HOURS_BEFORE_KICKOFF`.
 
-Deep reasoning is used only where it adds value. `gpt-5.4-mini` handles the event-matching task where the only job is comparing two lists of names — cheap and reliable.
+If the process restarts, the scheduler attempts to recover today's pre-match jobs from checkpoint data.
 
-**OpenAI integration notes:**
-- Both analysis phases use the **`developer` role** (OpenAI's recommended instruction layer for newer models)
-- All responses use **strict JSON Schema** structured outputs via the Responses API
-- The expert schema is **sport-aware** — basketball schema explicitly forbids Draw, BTTS, 1X, X2, G/G; soccer schema includes them
-- The model is **never used to discover fixtures** — all live facts are fetched from sports providers first, the model only reasons over them
+### 3. Fixture discovery
 
----
+Fixture discovery currently uses TheSportsDB V2 schedule endpoints with header authentication. The code fetches a full season schedule per supported league, then filters events down to the requested date.
 
-## Real-time odds (The Odds API)
+Supported competitions in the current code:
 
-Real-time odds are fetched from [The Odds API](https://the-odds-api.com) using **40+ European bookmakers** (Pinnacle, Bet365, Unibet, etc.).
-
-### How event matching works
-
-TheSportsDB and The Odds API use different team name formats (e.g. "Lyon-Villeurbanne" vs "ASVEL Lyon Villeurbanne"). The bot resolves this in two steps, **both free of odds quota cost**:
-
-1. **FREE `/events` endpoint** — retrieves all upcoming events for the sport key; no quota used
-2. **`gpt-5.4-mini` (LLM matching)** — given the fixture's home/away team names and the list of API events, returns the correct index; reliable across any naming variant
-
-Once the canonical event ID is known, a **single targeted call** fetches all markets in one request: `h2h,totals,btts` for soccer; `h2h,totals` for basketball (BTTS excluded — it doesn't exist in basketball).
-
-### Sport-aware market fetching
-
-| Market | Soccer | Basketball |
-|--------|--------|------------|
-| Match Winner (1X2 / Moneyline) | ✅ Home / Draw / Away | ✅ Home / Away only (no draw) |
-| Over/Under | ✅ ~2.5 goals (actual line from API) | ✅ ~215.5 points (actual line from API) |
-| Both Teams to Score | ✅ | ❌ not fetched |
-| Asian Handicap | available in prompt guidance | ❌ not in basketball prompt |
-
-The actual totals line (e.g. 215.5) is extracted from the most common offering across bookmakers and surfaced in the AI prompt with the correct label.
-
----
-
-## Quick start
-
-### 1. Clone & install
-
-```bash
-npm install
-```
-
-### 2. Configure
-
-```bash
-cp .env.example .env
-# Edit .env with your keys
-```
-
-Required keys:
-- `TELEGRAM_BOT_TOKEN` — from [@BotFather](https://t.me/BotFather)
-- `TELEGRAM_GROUP_CHAT_ID` — negative number for groups, e.g. `-100123456789`
-- `OPENAI_API_KEY` — from [platform.openai.com](https://platform.openai.com)
-- `THE_ODDS_API_KEY` — from [the-odds-api.com](https://the-odds-api.com) (Gate 5 real-time verification)
-
-TheSportsDB requires **no API key** for the free tier used here.
-
-### 3. Run
-
-```bash
-# Development (ts-node-dev with auto-reload)
-npm run dev
-
-# Production
-npm run build
-npm start
-```
-
-The planning job runs at `PLANNING_CRON` (default 2:00 AM Athens time). To trigger it immediately for testing, use the test runner.
-
----
-
-## Testing
-
-### Test Runner — Full pipeline for a specific date
-
-Test the entire system (fixture fetch → screening → expert analysis → Telegram publish) for any date:
-
-```bash
-# Local development (ts-node)
-npm run test-runner 2026-04-16
-
-# After build
-npm run build
-npm run test-runner-compiled 2026-04-16
-
-# Default to tomorrow
-npm run test-runner
-```
-
-The test runner:
-1. Fetches fixtures for the given date from TheSportsDB
-2. Runs the full screening + expert analysis pipeline
-3. **Publishes all qualifying picks to your Telegram group** (real posts, not mocked)
-4. Logs everything to `logs/combined.log` and `logs/picks.log`
-
-**Real validation:** Uses real API calls (The Odds API for Gate 5, OpenAI for analysis). Set `FORCE_ANALYSIS=false` in `.env` for production-grade testing (respects all gates).
-
-**Test mode:** Set `FORCE_ANALYSIS=true` to bypass screening, Gate 5 (odds), and dedup — forces every fixture through expert analysis regardless of gates.
-
----
-
-## Telegram behavior model
-
-The bot is **broadcast-only** — no command handlers, no replies.
-
-| Behavior | Detail |
-|----------|--------|
-| Commands | None registered |
-| Replies | Never replies to users |
-| Posting trigger | `PLANNING_CRON` schedules per-fixture jobs; each fires `HOURS_BEFORE_KICKOFF` before kickoff |
-| When no picks pass gates | Silent — no message sent |
-| Message rate | 1.5 s delay between posts (Telegram rate limit safety) |
-
----
-
-## Language and tone
-
-All user-facing output is in **Greek**.
-
-| Rule | Detail |
-|------|--------|
-| Language | Greek (`shortReasoning`, headers, labels) |
-| Tone | Friendly, conversational, παρέα-style — like a knowledgeable sports friend posting in a group |
-| Avoid | Robotic phrasing, formal disclaimers, generic AI-assistant language |
-| Internal fields | `keyFacts` and `riskFactors` in English (not shown to users) |
-
-The Greek phrasing is controlled via `EXPERT_DEVELOPER_PROMPT` in `src/ai-analysis/prompts.ts`. Tone examples and hard rules are embedded in the developer-role instructions.
-
----
-
-## Environment variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TELEGRAM_BOT_TOKEN` | — | **Required** |
-| `TELEGRAM_GROUP_CHAT_ID` | — | **Required** |
-| `OPENAI_API_KEY` | — | **Required** |
-| `THE_ODDS_API_KEY` | — | **Required** — Gate 5 real-time market verification |
-| `OPENAI_MODEL` | `gpt-5.4` | Model for screening + expert analysis |
-| `OPENAI_SCREENING_EFFORT` | `medium` | Reasoning effort for screening phase |
-| `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for expert analysis |
-| `OPENAI_TIMEOUT_MS` | `90000` | Per-call timeout in ms — fixture skipped on expiry |
-| `PLANNING_CRON` | `0 2 * * *` | Cron for nightly planning job (2:00 AM Athens time) |
-| `TIMEZONE` | `Europe/Athens` | Cron timezone |
-| `HOURS_BEFORE_KICKOFF` | `8` | How many hours before kickoff to post the tip |
-| `MIN_INTEREST_SCORE` | `5` | Min screening score to trigger deep analysis |
-| `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Min AI confidence to publish a tip |
-| `MIN_ACCEPTABLE_ODDS` | `1.50` | Tips with lower odds are blocked (Gate 5) |
-| `MAX_TIPS_PER_DAY` | `5` | Cap on daily tips published |
-| `MAX_CANDIDATES_FROM_SCREENING` | `10` | Max fixtures forwarded to expert analysis |
-| `FORCE_ANALYSIS` | `false` | **Dev only** — bypasses screening, Gate 5, and dedup |
-| `DB_PATH` | `./data/posted.db` | Deduplication store path |
-| `LOG_LEVEL` | `info` | Winston log level |
-
----
-
-## Logs
-
-| File | Contents |
-|------|----------|
-| `logs/combined.log` | All log entries (info and above) as JSON |
-| `logs/error.log` | Error-level entries only |
-| `logs/picks.log` | Append-only audit log of every published pick — fixture, competition, pick, market, confidence, date |
-
-`logs/picks.log` is the primary source for ROI tracking and prompt tuning. Each line is newline-delimited JSON.
-
----
-
-## Sports data provider
-
-Fixtures and enrichment data come from **TheSportsDB** ([thesportsdb.com](https://www.thesportsdb.com)) — **free tier, no API key required**.
-
-Supported leagues (configured in `src/sports/providers/thesportsdb-fixtures.ts`):
-
-| Competition | Type | League ID |
-|-------------|------|-----------|
+| Competition | Sport | TheSportsDB league ID |
+| --- | --- | --- |
 | Premier League | Football | 4328 |
-| Bundesliga | Football | 4331 |
-| Serie A | Football | 4332 |
 | La Liga | Football | 4335 |
+| Serie A | Football | 4332 |
+| Bundesliga | Football | 4331 |
 | Ligue 1 | Football | 4334 |
 | UEFA Champions League | Football | 4480 |
 | UEFA Europa League | Football | 4481 |
 | NBA | Basketball | 4387 |
 | EuroLeague | Basketball | 4546 |
 
-To add or remove leagues, edit the `TARGET_LEAGUES` array in `thesportsdb-fixtures.ts`.
+### 4. Screening phase
 
----
+The first AI pass is a screening step. Its purpose is not to produce a final pick but to rank the slate and avoid spending deep-analysis tokens on low-interest or weak-data matches.
 
-## Quality controls (Six-gate publication rule)
+Pipeline behavior:
 
-A tip is published only when **all six** conditions pass:
+- screening results are checkpointed per fixture,
+- screening results are reused on restart,
+- only the top fixtures that pass the minimum interest and quality checks are forwarded,
+- `FORCE_ANALYSIS=true` can bypass the normal screening gate for testing.
 
-| Gate | Condition |
-|------|-----------|
-| 1 | Fixture status is `scheduled` |
-| 2 | Data quality is `medium` or `high` — stale form (>45 days) or missing form for both teams is a **hard reject** |
-| 3 | Model returns `isPickRecommended: true` |
-| 4 | Confidence ≥ `MIN_CONFIDENCE_TO_PUBLISH` (default 6/10) |
-| 5 | The Odds API confirms the recommended market exists at odds ≥ `MIN_ACCEPTABLE_ODDS` (default 1.50) |
-| 6 | Fixture has not already been posted today (dedup store) |
+### 5. Enrichment and odds loading
 
-Additional controls:
-- **Hallucination guard** — validator checks team names against fixture source of truth before publishing
-- **Analysis caps** — `MAX_CANDIDATES_FROM_SCREENING` limits deep-analysis spend; `MAX_TIPS_PER_DAY` caps total daily output
-- **Per-call timeout** — OpenAI calls abort after `OPENAI_TIMEOUT_MS`; timed-out fixtures are skipped, not published
-- **Checkpoint recovery** — if the process restarts, today's fixtures are reloaded and their jobs are rescheduled
+For each candidate fixture, the pipeline enriches the match with:
 
----
+- structured TheSportsDB context,
+- recent form and standings where available,
+- available real bookmaker odds from The Odds API.
 
-## Prompt engineering summary
+The enrichment layer also computes an `availableOdds` block that includes:
 
-### Screening prompt (Phase 1)
-- Scores fixtures 0–10 for betting interest — considers rivalry, data availability, competitive balance, market inefficiency
-- Conservative threshold: only flags matches with genuine data and edge
-- Returns `shouldAnalyze: true` only for the best 3–5 fixtures
+- home/draw/away prices,
+- totals prices,
+- BTTS prices for football,
+- the most commonly offered totals line across bookmakers,
+- bookmaker count.
 
-### Expert system prompt (Phase 2)
-- Elite professional betting analyst persona
-- Hard rules: no invented facts, separate confirmed from inferred, one best pick per match
-- Self-rejection: returns `isPickRecommended: false` when data is insufficient
-- Calibrated confidence: 7+ = strong conviction, 5–6 = moderate, <5 = no pick
-- Market selection rules: avoid odds below 1.50; for heavy favorites look at totals/BTTS/handicap
-- **Sport-aware**: basketball prompt explicitly bans Draw, BTTS, X2, 1X, G/G, Ισοπαλία
+### 6. Expert analysis phase
 
-### Sport-aware JSON schema
-The expert schema is built at runtime via `buildExpertAnalysisSchema(isSoccer)`:
-- **Soccer schema**: `finalPick` and `bestBettingMarket` include Draw, BTTS, 1X, X2, G/G
-- **Basketball schema**: these fields explicitly forbid those markets and require basketball-appropriate notation
+The second AI pass produces the actual betting recommendation.
 
----
+The expert phase returns:
 
-## OpenAI implementation guardrails
+- `finalPick`,
+- `bestBettingMarket`,
+- `confidence`,
+- `shortReasoning`,
+- structured risk and quality information,
+- a flag indicating whether the model recommends publishing a pick at all.
 
-| The model IS | The model is NOT |
-|---|---|
-| analyst reasoning over facts | live sports database |
-| market value evaluator | odds feed |
-| risk assessor | injury/form source |
-| pick recommender | fixture discovery engine |
-| event name matcher (`gpt-5.4-mini`) | canonical ID oracle |
+The pipeline never publishes straight from expert output. It still has to pass the publication gate.
 
-All facts (fixtures, form, injuries, schedule, odds) are fetched from external providers **before** the model sees them. The model reasons over data — it never invents it.
+### 7. Publication gate
 
----
+A pick can only be published when all of these pass:
+
+1. the fixture status is acceptable,
+2. data quality is not low,
+3. the model explicitly recommends a pick,
+4. confidence is at least `MIN_CONFIDENCE_TO_PUBLISH`,
+5. the real market exists and its odds are at least `MIN_ACCEPTABLE_ODDS`,
+6. the fixture has not already been posted that day.
+
+This is the main protection against low-value favorites, missing markets, stale fixtures, and duplicate sends.
+
+### 8. Telegram publication
+
+When a fixture passes all gates:
+
+- the message is formatted in Greek,
+- available odds are fetched and appended when possible,
+- the tip is sent to the configured Telegram group,
+- the dedup store is updated,
+- the pick is persisted to `data/picks-log.json`,
+- halftime and full-time watchers are scheduled immediately.
+
+Pre-match tips are not pinned. Weekly and monthly reports are pinned.
+
+### 9. Halftime updates
+
+Each published pick gets its own independent halftime watcher.
+
+Current behavior:
+
+- start time: roughly `kickoff + 40 minutes`,
+- polling interval: every 10 minutes,
+- max attempts: 6,
+- trigger condition: TheSportsDB status becomes `HT`, `half time`, or `halftime`.
+
+When halftime is detected, the bot:
+
+1. fetches live score,
+2. fetches event stats,
+3. fetches lineup information when available,
+4. calls GPT with `web_search_preview`,
+5. generates a Greek halftime commentary,
+6. sends the halftime update to Telegram,
+7. records `halfTimeNotifiedAt` in `data/picks-log.json`.
+
+The halftime prompt is opinionated:
+
+- it is anchored to the exact match date,
+- it asks for player-specific performance references when possible,
+- it classifies the tip as on track, at risk, or already lost,
+- it only mentions withdrawal when the prompt judges the pick as effectively dead,
+- markdown links are stripped from model output before posting.
+
+### 10. Full-time updates
+
+Each published pick also gets its own independent full-time watcher.
+
+Current behavior:
+
+- start time: roughly `kickoff + 85 minutes`,
+- polling interval: every 10 minutes,
+- max attempts: 12,
+- trigger condition: TheSportsDB status becomes `FT`, `AET`, `Pen`, or `full time`.
+
+When full-time is detected, the bot:
+
+1. fetches final score,
+2. determines the betting outcome from `bestBettingMarket` plus the final score,
+3. fetches event stats and lineups,
+4. calls GPT with a full-time prompt,
+5. posts a Greek win/loss/push breakdown,
+6. updates `outcome`, `actualScore`, `resolvedAt`, and `fullTimeNotifiedAt` in `data/picks-log.json`.
+
+The full-time narrator changes tone based on the actual result:
+
+- win: celebratory explanation of what went right,
+- loss: short objective post-mortem and why the pick failed,
+- push: neutral explanation of how the line landed exactly.
+
+### 11. Reports
+
+The report system works off `data/picks-log.json`.
+
+Weekly report:
+
+- runs every Monday at 10:00 Athens time,
+- covers the previous 7 days,
+- resolves any still-pending outcomes before generating the report,
+- posts the message pinned.
+
+Monthly report:
+
+- runs only on the first Monday of the month,
+- covers the previous calendar month excluding the final 7 days,
+- avoids duplicating the same window already covered by the weekly report,
+- also posts pinned.
+
+## Providers and external dependencies
+
+### OpenAI
+
+Current model usage in the codebase:
+
+| Use case | Model |
+| --- | --- |
+| Screening | `gpt-5.4` |
+| Expert analysis | `gpt-5.4` |
+| Halftime commentary | `gpt-5.4` |
+| Full-time commentary | `gpt-5.4` |
+| Odds event-name matching | `gpt-5.4-mini` |
+| Report narratives | `gpt-5.4` |
+
+The model is used for reasoning and explanation. Fixtures, live statuses, stats, and odds come from provider APIs.
+
+### TheSportsDB
+
+TheSportsDB is used for:
+
+- season schedule lookup,
+- live event status,
+- final result resolution,
+- event stats,
+- event lineups,
+- structured enrichment data.
+
+The current code assumes `THESPORTSDB_API_KEY` is present for the V2 endpoints in active use.
+
+### The Odds API
+
+The Odds API is used for Gate 5 and odds display.
+
+Current behavior:
+
+- resolve canonical event identity first through the free `/events` endpoint,
+- use `gpt-5.4-mini` to match provider team-name variants,
+- fetch the selected event's odds afterward,
+- average odds across bookmakers for validation and display,
+- reject picks whose market is missing or priced below the configured threshold.
+
+Football currently fetches:
+
+- `h2h`,
+- `totals`,
+- `btts`.
+
+Basketball currently fetches:
+
+- `h2h`,
+- `totals`.
+
+## Betting market model
+
+The code currently operates on these internal market tokens:
+
+| Token | Meaning |
+| --- | --- |
+| `h2h/home` | Home team to win |
+| `h2h/draw` | Draw |
+| `h2h/away` | Away team to win |
+| `totals/over` | Over the extracted totals line |
+| `totals/under` | Under the extracted totals line |
+| `btts/yes` | Both teams to score |
+| `btts/no` | Both teams not to score |
+
+Outcome resolution for reports and full-time notifications is based on those tokens plus the final score.
+
+## Telegram output model
+
+The Telegram layer is intentionally simple and deterministic:
+
+- HTML parse mode is enabled.
+- Link previews are disabled.
+- The bot runs in broadcast-only mode.
+- No chat commands are handled.
+- No user messages are answered.
+- Reports use `sendAndPinInGroup()`.
+- Normal tips, halftime updates, and full-time updates use `sendToGroup()`.
+
+The pre-match formatter includes:
+
+- competition label,
+- kickoff time in Athens timezone,
+- short reasoning,
+- final pick,
+- odds when they can be resolved.
+
+## Persistence model
+
+### Checkpoints
+
+Checkpoint storage lives under `data/checkpoints/{date}/`.
+
+Current layout:
+
+```text
+data/checkpoints/{date}/
+├── fixtures.json
+├── screening/
+│   └── {fixtureId}.json
+└── analysis/
+    └── {fixtureId}.json
+```
+
+What is checkpointed:
+
+- fetched fixtures for the day,
+- per-fixture screening results,
+- per-fixture expert analysis.
+
+This allows the process to resume without repeating expensive steps after a restart.
+
+### Picks log
+
+`data/picks-log.json` is the long-lived record of published picks.
+
+Each record stores:
+
+- fixture identity,
+- date and teams,
+- posted pick and market token,
+- confidence,
+- resolved outcome,
+- actual score,
+- `halfTimeNotifiedAt`,
+- `fullTimeNotifiedAt`.
+
+This file is the base for weekly and monthly reporting.
+
+### Dedup store
+
+The dedup layer persists a JSON file keyed by date and fixture ID.
+
+Important implementation detail:
+
+- `DB_PATH` defaults to `./data/posted.db` in config,
+- the dedup layer normalizes that to a JSON file by replacing `.db` with `.json`,
+- in practice the default runtime store behaves like `./data/posted.json`.
+
+## Configuration
+
+### Required environment variables
+
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_GROUP_CHAT_ID`
+- `OPENAI_API_KEY`
+- `THE_ODDS_API_KEY`
+- `THESPORTSDB_API_KEY`
+
+### Optional environment variables and defaults
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_MODEL` | `gpt-5.4` | Main model for analysis and commentary |
+| `OPENAI_SCREENING_EFFORT` | `medium` | Reasoning effort for screening |
+| `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for expert analysis |
+| `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
+| `PLANNING_CRON` | `0 2 * * *` | Nightly planning cron |
+| `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
+| `HOURS_BEFORE_KICKOFF` | `8` | Pre-match posting lead time |
+| `MIN_INTEREST_SCORE` | `5` | Minimum screening score |
+| `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |
+| `MAX_TIPS_PER_DAY` | `5` | Daily publication cap |
+| `MAX_CANDIDATES_FROM_SCREENING` | `10` | Max fixtures forwarded to expert phase |
+| `MIN_ACCEPTABLE_ODDS` | `1.50` | Gate 5 minimum odds |
+| `FORCE_ANALYSIS` | `false` | Dev-only bypass for screening, odds gate, and dedup |
+| `DB_PATH` | `./data/posted.db` | Dedup store base path |
+| `LOG_LEVEL` | `info` | Winston log level |
+
+## Installation and local usage
+
+### Install dependencies
+
+```bash
+npm install
+```
+
+### Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Fill in your keys before starting the bot.
+
+### Development mode
+
+```bash
+npm run dev
+```
+
+### Production build
+
+```bash
+npm run build
+npm start
+```
+
+## NPM scripts
+
+| Script | What it does |
+| --- | --- |
+| `npm run dev` | Run the app in development mode with reload |
+| `npm run build` | Compile TypeScript into `dist/` |
+| `npm start` | Run the compiled app |
+| `npm run typecheck` | Run TypeScript typecheck without emit |
+| `npm run test-runner` | Execute the full pipeline for a target date |
+| `npm run test-runner-compiled` | Run the compiled test runner from `dist/test/test-runner.js` |
+| `npm run test-report` | Seed picks, assign outcomes, and send a pinned test report |
+| `npm run test-halftime` | Send 3 halftime test scenarios |
+| `npm run test-fulltime` | Send 3 full-time test scenarios |
+| `npm run test-crash` | Run the two-phase crash recovery test |
+
+## Manual test scripts
+
+All manual test entry points now live under `src/test/`.
+
+### 1. Full pipeline test
+
+```bash
+npm run test-runner 2026-04-16
+```
+
+This:
+
+1. fetches fixtures,
+2. runs screening,
+3. runs expert analysis,
+4. applies the publication gate,
+5. posts any qualifying tips to Telegram.
+
+This is a real integration path, not a mocked dry run.
+
+### 2. Compiled test runner
+
+```bash
+npm run build
+npm run test-runner-compiled 2026-04-16
+```
+
+Useful when validating the exact compiled output path and runtime behavior from `dist/`.
+
+### 3. Report test
+
+```bash
+npm run test-report 2026-04-16
+```
+
+This test:
+
+- seeds picks from checkpoints,
+- assigns random outcomes,
+- generates the AI report narrative,
+- posts the report pinned to Telegram.
+
+### 4. Halftime test
+
+```bash
+npm run test-halftime 2026-04-16 football
+npm run test-halftime 2026-04-16 basketball
+```
+
+This sends three halftime scenarios for a checkpoint-backed pick.
+
+### 5. Full-time test
+
+```bash
+npm run test-fulltime 2026-04-16 football
+npm run test-fulltime 2026-04-16 basketball
+```
+
+This sends three full-time scenarios and verifies win/loss/push commentary.
+
+### 6. Crash recovery test
+
+```bash
+TEST_DATE=2026-04-16 npm run test-crash
+TEST_DATE=2026-04-16 npm run test-crash
+```
+
+Behavior:
+
+- first run fetches fixtures, saves checkpoint state, and exits intentionally,
+- second run detects checkpoint presence and continues from disk as a recovery simulation.
+
+## Data and logs
+
+### Data files
+
+| Path | Purpose |
+| --- | --- |
+| `data/checkpoints/` | Resume state for fixtures, screening, and analysis |
+| `data/picks-log.json` | Published picks plus resolved live/report metadata |
+| `data/posted.json` | Dedup store in normal usage |
+
+### Log files
+
+| Path | Purpose |
+| --- | --- |
+| `logs/combined.log` | Main structured runtime log |
+| `logs/error.log` | Error-only log |
+| `logs/picks.log` | Audit-style log for published picks |
+
+## Operational notes
+
+- The bot must have permission to send messages to the configured group.
+- The bot must have permission to pin messages if weekly/monthly reports should pin successfully.
+- Halftime and full-time watchers are scheduled with per-fixture `setTimeout`, not cron.
+- Post-publication live updates are only scheduled for fixtures that were actually published.
+- There is a `1.5s` pause between pre-match posts to reduce Telegram rate-limit pressure.
+
+## Current limitations
+
+These are important to understand in production:
+
+- Restart recovery currently restores pre-match jobs from checkpoint, but it does not rebuild already-scheduled halftime or full-time watchers for live matches that were in progress during the restart.
+- Halftime and full-time notifications use polling windows, not event subscriptions, so updates are near-real-time rather than exact-to-the-minute.
+- Commentary quality depends on provider stats plus web-search availability for that specific match.
+- If The Odds API cannot resolve a matching event or market, Gate 5 will block the pick even if the model likes it.
+
+## Troubleshooting
+
+### No pre-match tips are being posted
+
+Check these first:
+
+- `FORCE_ANALYSIS` is false and the slate is simply failing gates,
+- `THE_ODDS_API_KEY` is valid,
+- markets exist at or above `MIN_ACCEPTABLE_ODDS`,
+- fixtures are still `scheduled`,
+- the fixture was not already marked in the dedup store.
+
+### Reports do not pin
+
+The most likely cause is Telegram permissions. The bot must be allowed to pin messages in the group.
+
+### No halftime or full-time update arrives
+
+Likely reasons:
+
+- the pre-match pick was never published, so no watcher was scheduled,
+- the match status never entered the expected TheSportsDB status inside the polling window,
+- the process restarted after the pick was posted and before the watcher fired,
+- provider stats or event lookup failed repeatedly during polling.
+
+### Odds show as missing in the tip message
+
+That usually means the formatter could not resolve the same market token against the fetched odds payload, or no odds payload was available for that event at formatting time.
 
 ## Disclaimer
 
-This bot produces analytical opinions for informational purposes only. It does not constitute financial or gambling advice. Always bet responsibly and within your means.
-├── config.ts                 Centralised env-var config
+This project publishes analytical betting opinions for informational use. It is not financial advice and it does not guarantee outcomes. Bet responsibly.

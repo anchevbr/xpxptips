@@ -8,11 +8,12 @@
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test-runner": "ts-node-dev --transpile-only src/test-runner.ts",
-    "test-runner-compiled": "node dist/test-runner.js",
-    "test-report": "ts-node-dev --transpile-only src/test-report.ts",
-    "test-halftime": "ts-node-dev --transpile-only src/test-halftime.ts",
-    "test-fulltime": "ts-node-dev --transpile-only src/test-fulltime.ts"
+    "test-runner": "ts-node-dev --transpile-only src/test/test-runner.ts",
+    "test-runner-compiled": "node dist/test/test-runner.js",
+    "test-report": "ts-node-dev --transpile-only src/test/test-report.ts",
+    "test-halftime": "ts-node-dev --transpile-only src/test/test-halftime.ts",
+    "test-fulltime": "ts-node-dev --transpile-only src/test/test-fulltime.ts",
+    "test-crash": "ts-node-dev --transpile-only src/test/crash-test.ts"
   },
   "dependencies": {
     "openai": "^5.0.0",

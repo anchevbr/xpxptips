@@ -1,6 +1,6 @@
 import 'dotenv/config';
-import { logger } from './utils/logger';
-import { runPlanningJob } from './scheduler';
+import { logger } from '../utils/logger';
+import { runPlanningJob } from '../scheduler';
 
 /**
  * Test runner — execute the full AI pipeline for a specific date.

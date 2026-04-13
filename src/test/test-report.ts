@@ -15,13 +15,13 @@
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
-import { logger } from './utils/logger';
-import { addPick, getAllPicks, updateOutcome } from './reports/picks-store';
-import { resolveOutcome, formatScore } from './reports/result-resolver';
-import { generateNarrative } from './reports/report-generator';
-import { formatWeeklyReport } from './reports/report-formatter';
-import { sendAndPinInGroup } from './bot/telegram';
-import type { PickRecord, BettingAnalysis } from './types';
+import { logger } from '../utils/logger';
+import { addPick, getAllPicks, updateOutcome } from '../reports/picks-store';
+import { resolveOutcome, formatScore } from '../reports/result-resolver';
+import { generateNarrative } from '../reports/report-generator';
+import { formatWeeklyReport } from '../reports/report-formatter';
+import { sendAndPinInGroup } from '../bot/telegram';
+import type { PickRecord, BettingAnalysis } from '../types';
 
 const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
 const POSTED_PATH = path.resolve('./data/posted.json');
