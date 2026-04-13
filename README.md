@@ -144,7 +144,37 @@ npm run build
 npm start
 ```
 
-The planning job runs at `PLANNING_CRON` (default 2:00 AM UTC). To trigger it immediately for testing, call `runPlanningJob(dateOverride)` from `src/scheduler/index.ts` with a date string.
+The planning job runs at `PLANNING_CRON` (default 2:00 AM Athens time). To trigger it immediately for testing, use the test runner.
+
+---
+
+## Testing
+
+### Test Runner — Full pipeline for a specific date
+
+Test the entire system (fixture fetch → screening → expert analysis → Telegram publish) for any date:
+
+```bash
+# Local development (ts-node)
+npm run test-runner 2026-04-16
+
+# After build
+npm run build
+npm run test-runner-compiled 2026-04-16
+
+# Default to tomorrow
+npm run test-runner
+```
+
+The test runner:
+1. Fetches fixtures for the given date from TheSportsDB
+2. Runs the full screening + expert analysis pipeline
+3. **Publishes all qualifying picks to your Telegram group** (real posts, not mocked)
+4. Logs everything to `logs/combined.log` and `logs/picks.log`
+
+**Real validation:** Uses real API calls (The Odds API for Gate 5, OpenAI for analysis). Set `FORCE_ANALYSIS=false` in `.env` for production-grade testing (respects all gates).
+
+**Test mode:** Set `FORCE_ANALYSIS=true` to bypass screening, Gate 5 (odds), and dedup — forces every fixture through expert analysis regardless of gates.
 
 ---
 

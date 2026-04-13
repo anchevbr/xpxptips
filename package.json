@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test-runner": "ts-node-dev --transpile-only src/test-runner.ts",
+    "test-runner-compiled": "node dist/test-runner.js"
   },
   "dependencies": {
     "openai": "^5.0.0",
