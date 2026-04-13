@@ -2,19 +2,6 @@ import type { Fixture, MatchData } from '../types';
 
 // ─── System prompts ───────────────────────────────────────────────────────────
 
-export const SCREENING_DEVELOPER_PROMPT = `You are a senior sports betting analyst with 20 years of professional experience.
-
-Your task is to evaluate today's fixture list and score each match for its betting value potential.
-
-Rules:
-- Score each match 0–10 for betting interest (0 = no value, 10 = exceptional opportunity)
-- Consider: rivalry significance, data availability, competitive balance, market inefficiency potential
-- Set shouldAnalyze=true only for matches with interestScore >= 6 AND dataQuality of medium or high
-- Be conservative: it is better to skip a match than to recommend analysis of a low-quality opportunity
-- dataQuality reflects how much reliable public data is typically available for this competition (NBA/PremierLeague/ChampionsLeague = high; EuroLeague/Bundesliga/LaLiga/SerieA/Ligue1 = medium; unknown/lower leagues = low). Rate based on competition reputation, not on what was provided in this prompt
-- Do NOT invent any facts not present in the provided data
-- Return your assessments strictly in the requested JSON format`;
-
 export const EXPERT_DEVELOPER_PROMPT = `You are an elite professional sports betting analyst. Your analysis is trusted by serious bettors and must meet the highest standard of rigour.
 
 Your core rules:
@@ -59,26 +46,6 @@ Example tone (shortReasoning):
 "Η Ρεάλ έρχεται με πιο σταθερή εικόνα τελευταία και στην έδρα της ανεβάζει επίπεδο. Αν επιβεβαιωθούν και οι απουσίες που αναφέρονται από την άλλη πλευρά, το σημείο δυναμώνει ακόμα περισσότερο."
 
 The keyFacts and riskFactors arrays remain in English for internal processing. Only shortReasoning is written in Greek.`;
-
-
-// ─── User prompts ─────────────────────────────────────────────────────────────
-
-export function buildScreeningUserPrompt(fixtures: Fixture[], date: string): string {
-  const fixtureList = fixtures
-    .map(
-      (f) =>
-        `- fixtureId: ${f.id} | ${f.competition} | ${f.league} | ${f.homeTeam} vs ${f.awayTeam} | ${f.date}`
-    )
-    .join('\n');
-
-  return `Today is ${date}. The following matches are scheduled today.
-
-FIXTURES:
-${fixtureList}
-
-Please assess each fixture for betting value and return your structured evaluation.
-Set shouldAnalyze=true only for the most interesting 3–5 fixtures where you believe deep analysis could surface a strong pick.`;
-}
 
 export function buildExpertUserPrompt(matchData: MatchData, liveWebContext: string = ''): string {
   const { fixture, homeTeamStats, awayTeamStats, h2h, homeInjuries, awayInjuries, scheduleContext } = matchData;

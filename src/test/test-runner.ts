@@ -9,7 +9,7 @@ import { runPlanningJob } from '../scheduler';
  *   npm run test-runner 2026-04-16
  *   npm run test-runner
  *
- * Fetches fixtures, runs screening + expert analysis, and publishes picks to Telegram.
+ * Fetches fixtures, runs expert analysis for every fixture, and publishes picks to Telegram.
  * All published picks are logged to logs/picks.log for audit.
  */
 async function main(): Promise<void> {

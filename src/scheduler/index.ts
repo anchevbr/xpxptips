@@ -11,6 +11,35 @@ import { saveFixtures, loadFixtures } from '../utils/checkpoint';
 import { runWeeklyReport, runMonthlyReport, isFirstMondayOfMonth } from '../reports';
 import type { Fixture } from '../types';
 
+type FixtureRunContext = {
+  index?: number;
+  total?: number;
+};
+
+function fixtureRunLabel(fixture: Fixture, context?: FixtureRunContext): string {
+  const ordinal =
+    typeof context?.index === 'number' && typeof context?.total === 'number'
+      ? ` ${context.index}/${context.total}`
+      : '';
+  return `FIXTURE${ordinal} | ${fixture.homeTeam} vs ${fixture.awayTeam} | ${fixture.league}`;
+}
+
+function logFixtureBlockStart(fixture: Fixture, date: string, context?: FixtureRunContext): void {
+  const label = fixtureRunLabel(fixture, context);
+  logger.info('');
+  logger.info('───────────────────────────────────────────────────────────────');
+  logger.info(`[scheduler] ${label}`);
+  logger.info(`[scheduler] date=${date} | fixtureId=${fixture.id}`);
+  logger.info('───────────────────────────────────────────────────────────────');
+}
+
+function logFixtureBlockEnd(fixture: Fixture, outcome: string, context?: FixtureRunContext): void {
+  const label = fixtureRunLabel(fixture, context);
+  logger.info(`[scheduler] ${label} | outcome=${outcome}`);
+  logger.info('───────────────────────────────────────────────────────────────');
+  logger.info('');
+}
+
 // ─── Per-fixture job ──────────────────────────────────────────────────────────
 
 /**
@@ -18,38 +47,42 @@ import type { Fixture } from '../types';
  * This runs at `kickoff - HOURS_BEFORE_KICKOFF`, giving the most up-to-date
  * live context right before each event.
  */
-async function runFixtureJob(fixture: Fixture, date: string): Promise<void> {
-  logger.info(
-    `[scheduler] running pre-match job for ${fixture.homeTeam} vs ${fixture.awayTeam} (${date})`
-  );
+async function runFixtureJob(fixture: Fixture, date: string, context?: FixtureRunContext): Promise<void> {
+  logFixtureBlockStart(fixture, date, context);
 
-  if (!config.analysis.forceAnalysis && alreadyPosted(fixture.id, date)) {
-    logger.info(`[scheduler] ${fixture.id} already posted — skipping`);
-    return;
-  }
+  let outcome = 'unknown';
 
-  let results;
   try {
-    results = await runFullAnalysisPipeline([fixture], date);
+    if (!config.analysis.forceAnalysis && alreadyPosted(fixture.id, date)) {
+      logger.info(`[scheduler] ${fixture.id} already posted — skipping`);
+      outcome = 'already-posted';
+      return;
+    }
+
+    const results = await runFullAnalysisPipeline([fixture], date);
+
+    if (results.length === 0) {
+      logger.info(
+        `[scheduler] no qualifying pick for ${fixture.homeTeam} vs ${fixture.awayTeam}`
+      );
+      outcome = 'no-pick';
+      return;
+    }
+
+    await publishSingleResult(results[0], date);
+    outcome = 'posted';
   } catch (err) {
+    outcome = 'error';
     logger.error(`[scheduler] analysis failed for ${fixture.id}: ${String(err)}`);
-    return;
+  } finally {
+    logFixtureBlockEnd(fixture, outcome, context);
   }
-
-  if (results.length === 0) {
-    logger.info(
-      `[scheduler] no qualifying pick for ${fixture.homeTeam} vs ${fixture.awayTeam}`
-    );
-    return;
-  }
-
-  await publishSingleResult(results[0], date);
 }
 
 // ─── Planning job ─────────────────────────────────────────────────────────────
 
 /**
- * Fetches the next day's fixtures, screens them, and schedules a per-fixture
+ * Fetches the next day's fixtures and schedules a per-fixture
  * analysis job to fire `HOURS_BEFORE_KICKOFF` hours before each event.
  *
  * @param dateOverride  Override the target date (test mode). Normally tomorrow.
@@ -89,8 +122,8 @@ export async function runPlanningJob(dateOverride?: string): Promise<void> {
   const testMode = !!dateOverride;
 
   if (testMode) {
-    for (const fixture of fixtures) {
-      await runFixtureJob(fixture, targetDate);
+    for (const [index, fixture] of fixtures.entries()) {
+      await runFixtureJob(fixture, targetDate, { index: index + 1, total: fixtures.length });
     }
     return;
   }

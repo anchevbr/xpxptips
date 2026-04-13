@@ -126,18 +126,6 @@ export interface MatchData {
   };
 }
 
-// ─── AI Screening ─────────────────────────────────────────────────────────────
-
-export interface ScreeningResult {
-  fixtureId: string;
-  fixture: Fixture;
-  /** Analyst interest score 0–10 */
-  interestScore: number;
-  dataQuality: DataQuality;
-  reasons: string[];
-  shouldAnalyze: boolean;
-}
-
 // ─── AI Betting Analysis ──────────────────────────────────────────────────────
 
 export interface BettingAnalysis {

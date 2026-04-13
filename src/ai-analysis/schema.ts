@@ -3,46 +3,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Schema for the fast screening phase.
- * The model returns a scored list of fixture IDs with reasons.
- */
-export const screeningSchema = {
-  type: 'object',
-  properties: {
-    assessments: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          fixtureId: { type: 'string' },
-          interestScore: {
-            type: 'number',
-            description: 'Betting interest score from 0 (no value) to 10 (exceptional opportunity)',
-          },
-          dataQuality: {
-            type: 'string',
-            enum: ['high', 'medium', 'low'],
-          },
-          reasons: {
-            type: 'array',
-            items: { type: 'string' },
-            description: 'Short bullet reasons explaining the interest score',
-          },
-          shouldAnalyze: {
-            type: 'boolean',
-            description: 'Whether this fixture should be passed to the deep expert analysis phase',
-          },
-        },
-        required: ['fixtureId', 'interestScore', 'dataQuality', 'reasons', 'shouldAnalyze'],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: ['assessments'],
-  additionalProperties: false,
-} as const;
-
-/**
  * Schema for the full expert betting analysis phase.
  * Pass isSoccer=true for football, false for basketball — adjusts market/pick descriptions.
  */

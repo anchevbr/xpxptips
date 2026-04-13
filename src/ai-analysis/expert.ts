@@ -1,13 +1,15 @@
-import OpenAI from 'openai';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { createOpenAIClient } from '../utils/openai-client';
+import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
+import { getOpenAIUsage, logOpenAIUsage } from '../utils/openai-usage';
 import { withRetry } from '../utils/retry';
 import { EXPERT_DEVELOPER_PROMPT, buildExpertUserPrompt } from './prompts';
 import { buildExpertAnalysisSchema } from './schema';
 import { validateAnalysis } from './validator';
 import type { Fixture, MatchData, BettingAnalysis } from '../types';
 
-const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: config.openai.timeoutMs });
+const openai = createOpenAIClient();
 
 /**
  * Live web search for a fixture — retrieves current form, injuries,
@@ -17,39 +19,99 @@ const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: config.openai
  */
 async function fetchLiveContext(fixture: Fixture): Promise<string> {
   const dateStr = fixture.date.substring(0, 10);
+  const model = config.openai.model;
+  const effort = config.openai.expertEffort;
+  const startedAt = Date.now();
   const query =
-    `Find the latest information before the match ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
-    `in ${fixture.league} on ${dateStr}. Include: ` +
-    `(1) current form — last 5 results for both teams with scores, ` +
-    `(2) key injuries and suspensions for both sides, ` +
-    `(3) head-to-head results from the past 2 years, ` +
-    `(4) current league standings / table position, ` +
-    `(5) any tactical or motivational context (must-win, rotation expected, cup fatigue), ` +
-    `(6) available betting odds for the match.`;
+    `Find only the most important pre-match information for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
+    `in ${fixture.league} on ${dateStr}. ` +
+    `Prefer official club, league, UEFA/FIFA, or major sports-media sources. ` +
+    `Return a compact scouting note with only these sections: ` +
+    `(1) form from the last 3-5 matches, ` +
+    `(2) key injuries/suspensions, ` +
+    `(3) notable head-to-head results from the last 2 years only if relevant, ` +
+    `(4) current table position, ` +
+    `(5) one short tactical/motivation note, ` +
+    `(6) current odds snapshot if available. ` +
+    `Be concise and avoid duplicate findings.`;
 
-  logger.info(`[expert] fetching live context for ${fixture.homeTeam} vs ${fixture.awayTeam}`);
+  logger.info(
+    `[expert] fetching live context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
+    `| model=${model} | effort=${effort} | timeoutMs=${config.openai.timeoutMs}`
+  );
+
+  const progressTimer = setInterval(() => {
+    const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+    logger.info(
+      `[expert] live context still running for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
+      `| elapsed=${elapsedSec}s`
+    );
+  }, 15_000);
+
   try {
-    const resp = await openai.responses.create({
-      model: config.openai.model,
-      input: query,
-      tools: [{ type: 'web_search_preview' }],
-    } as Parameters<typeof openai.responses.create>[0]);
+    const resp = await runResponseWithActivityLogging({
+      client: openai,
+      scope: 'expert-live-context',
+      model,
+      timeoutMs: config.openai.timeoutMs,
+      usageMeta: {
+        fixtureId: fixture.id,
+        homeTeam: fixture.homeTeam,
+        awayTeam: fixture.awayTeam,
+      },
+      params: {
+        model,
+        input: query,
+        reasoning: { effort },
+        text: { verbosity: 'low' },
+        tools: [{ type: 'web_search_preview' }],
+      } as Parameters<typeof openai.responses.stream>[0],
+    });
 
-    const text = (resp as { output_text?: string }).output_text ?? '';
-    logger.info(`[expert] live context fetched (${text.length} chars) for ${fixture.homeTeam} vs ${fixture.awayTeam}`);
+    clearInterval(progressTimer);
+
+    const text = extractResponseOutputText(resp);
+    if (!text) {
+      const usage = getOpenAIUsage(resp as { usage?: unknown });
+      const outputTokens = usage?.output_tokens;
+      const reasoningTokens = usage?.output_tokens_details?.reasoning_tokens;
+      const visibleOutputTokens =
+        typeof outputTokens === 'number' && typeof reasoningTokens === 'number'
+          ? outputTokens - reasoningTokens
+          : undefined;
+
+      const parts = [
+        `[expert] live context returned no visible text for ${fixture.homeTeam} vs ${fixture.awayTeam}`,
+        `elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`,
+      ];
+
+      if (typeof outputTokens === 'number') parts.push(`output_tokens=${outputTokens}`);
+      if (typeof reasoningTokens === 'number') parts.push(`reasoning_output_tokens=${reasoningTokens}`);
+      if (typeof visibleOutputTokens === 'number') parts.push(`visible_output_tokens=${visibleOutputTokens}`);
+
+      logger.warn(parts.join(' | '));
+      return '';
+    }
+
+    logger.info(
+      `[expert] live context fetched (${text.length} chars) for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
+      `| elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
+    );
     return text;
   } catch (err) {
+    clearInterval(progressTimer);
     logger.warn(`[expert] live context fetch failed for ${fixture.id}: ${String(err)}`);
     return '';
   }
 }
 
 /**
- * Full expert analysis phase — uses high/xhigh reasoning effort.
+ * Full expert analysis phase — uses the configured reasoning effort.
  * Returns null if the model declines to make a pick or the response is invalid.
  */
 export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysis | null> {
   const { fixture } = matchData;
+  const model = config.openai.model;
   logger.info(
     `[expert] analyzing ${fixture.homeTeam} vs ${fixture.awayTeam} with effort=${config.openai.expertEffort}`
   );
@@ -65,7 +127,7 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
     rawJson = await withRetry(
       () =>
         openai.responses.create({
-          model: config.openai.model,
+          model,
           input: [
             // OpenAI newer models prefer 'developer' over 'system' for policy instructions
             { role: 'developer', content: EXPERT_DEVELOPER_PROMPT },
@@ -87,6 +149,13 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
     logger.error(`[expert] OpenAI call failed for ${fixture.id}: ${String(err)}`);
     return null;
   }
+
+  logOpenAIUsage('expert-analysis', model, rawJson as { id?: string; usage?: unknown }, {
+    fixtureId: fixture.id,
+    homeTeam: fixture.homeTeam,
+    awayTeam: fixture.awayTeam,
+    competition: fixture.competition,
+  });
 
   const outputText: string = (rawJson as { output_text?: string }).output_text ?? '';
   if (!outputText) {

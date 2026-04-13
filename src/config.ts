@@ -29,23 +29,39 @@ export const config = {
 
   openai: {
     apiKey: required('OPENAI_API_KEY'),
-    model: optional('OPENAI_MODEL', 'gpt-5.4'),
-    /** Reasoning effort for the fast screening pass */
-    screeningEffort: optional('OPENAI_SCREENING_EFFORT', 'medium') as
+    model: optional('OPENAI_MODEL', 'gpt-5.4-mini'),
+    /** Model used by halftime/full-time live commentary updates */
+    commentaryModel: optional('OPENAI_COMMENTARY_MODEL', 'gpt-5.4-mini'),
+    /** Model used by weekly/monthly report narratives */
+    reportModel: optional('OPENAI_REPORT_MODEL', 'gpt-5.4-mini'),
+    /** Reasoning effort for halftime/full-time commentary calls */
+    commentaryEffort: optional('OPENAI_COMMENTARY_EFFORT', 'xhigh') as
+      | 'minimal'
+      | 'low'
+      | 'medium'
+      | 'high'
+      | 'xhigh',
+    /** Reasoning effort for weekly/monthly report narrative calls */
+    reportEffort: optional('OPENAI_REPORT_EFFORT', 'xhigh') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
     /** Reasoning effort for the final expert betting analysis */
-    expertEffort: optional('OPENAI_EXPERT_EFFORT', 'high') as
+    expertEffort: optional('OPENAI_EXPERT_EFFORT', 'xhigh') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
-    /** Per-call timeout in milliseconds — skips fixture on expiry */
+    /** Per-call timeout in milliseconds. Set to 0 to disable the client-side cap. */
     timeoutMs: optionalNumber('OPENAI_TIMEOUT_MS', 90_000),
+  },
+
+  sports: {
+    /** TheSportsDB request timeout in milliseconds. Set to 0 to disable the client-side cap. */
+    theSportsDbTimeoutMs: optionalNumber('THESPORTSDB_TIMEOUT_MS', 10_000),
   },
 
   scheduler: {
@@ -57,17 +73,14 @@ export const config = {
   },
 
   analysis: {
-    minInterestScore: optionalNumber('MIN_INTEREST_SCORE', 5),
     minConfidenceToPublish: optionalNumber('MIN_CONFIDENCE_TO_PUBLISH', 6),
     maxTipsPerDay: optionalNumber('MAX_TIPS_PER_DAY', 5),
-    /** Maximum fixtures forwarded from screening to deep expert analysis */
-    maxCandidatesFromScreening: optionalNumber('MAX_CANDIDATES_FROM_SCREENING', 10),
     /** Minimum acceptable odds — tips below this threshold are rejected (default: 1.50) */
     minAcceptableOdds: optionalNumber('MIN_ACCEPTABLE_ODDS', 1.50),
     /**
-     * TEST MODE — bypass screening filter, Gate 5 (odds), and dedup.
+     * TEST MODE — bypasses the scheduled-status check, Gate 5 (odds), and dedup.
      * Set FORCE_ANALYSIS=true in .env to push every fixture through the full
-     * expert-analysis and publication path regardless of screening scores or
+     * expert-analysis and publication path regardless of fixture status or
      * whether markets are available. NEVER set this in production.
      */
     forceAnalysis: optionalBool('FORCE_ANALYSIS', false),

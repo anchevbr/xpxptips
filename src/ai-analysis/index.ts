@@ -1,16 +1,13 @@
 import { enrichFixture } from '../sports/enrichment';
-import { screenFixtures } from './screener';
 import { analyzeMatch } from './expert';
 import { marketAvailable } from '../odds';
 import { logger } from '../utils/logger';
 import { config } from '../config';
 import {
-  saveScreeningResult,
-  loadScreeningResult,
   saveAnalysis,
   loadAnalysis,
 } from '../utils/checkpoint';
-import type { Fixture, ScreeningResult, BettingAnalysis, MatchData } from '../types';
+import type { Fixture, BettingAnalysis, MatchData } from '../types';
 
 export type AnalysisResult = {
   matchData: MatchData;
@@ -18,13 +15,13 @@ export type AnalysisResult = {
 };
 
 // ─── Publication gate ─────────────────────────────────────────────────────────
-// A tip may only be published when ALL six conditions are met:
+// A tip may only be published when ALL five conditions are met:
 //   1. Fixture data is confirmed (fixture.status === 'scheduled')
 //   2. Data quality passes threshold (not 'low')
 //   3. The model recommends a pick (isPickRecommended === true)
 //   4. Confidence passes the minimum threshold
 //   5. The betting market exists in the connected odds source
-//   6. The fixture has not already been posted today (checked in scheduler)
+// The already-posted check is handled separately in the scheduler.
 
 async function passesPublicationGate(
   matchData: MatchData,
@@ -72,10 +69,10 @@ async function passesPublicationGate(
 }
 
 /**
- * Orchestrates the full two-phase pipeline:
- *   1. Fast screening  — scores all fixtures, selects best candidates
- *   2. Expert analysis — deep analysis on shortlisted fixtures only
- *   3. Six-gate publication check before accepting each result
+ * Orchestrates the analysis pipeline:
+ *   1. Enrich every supplied fixture with provider data and odds
+ *   2. Run expert analysis for every fixture
+ *   3. Apply the publication gate before accepting each result
  *
  * IMPORTANT: The model is never used to discover fixtures.
  * All fixture, injury, form, and schedule data must be collected from sports
@@ -94,94 +91,37 @@ export async function runFullAnalysisPipeline(
   }
 
   logger.info(`[pipeline] starting for ${fixtures.length} fixtures on ${date}`);
-
-  // ── Phase 1: Screen (with checkpoint resume) ──────────────────────────────
-  const cachedScreening = fixtures.map((f) => loadScreeningResult(date, f.id));
-  const uncachedFixtures = fixtures.filter((_, i) => cachedScreening[i] === null);
-
-  const freshScreening: ScreeningResult[] =
-    uncachedFixtures.length > 0 ? await screenFixtures(uncachedFixtures, date) : [];
-
-  // Persist fresh results
-  for (const r of freshScreening) saveScreeningResult(date, r);
-
-  // Merge cached + fresh in original fixture order
-  const screeningResults: ScreeningResult[] = fixtures.flatMap((f, i) => {
-    const result = cachedScreening[i] ?? freshScreening.find((r) => r.fixture.id === f.id);
-    return result ? [result] : [];
-  });
-
-  for (const r of screeningResults) {
-    const fail = !r.shouldAnalyze
-      ? 'shouldAnalyze=false'
-      : r.interestScore < config.analysis.minInterestScore
-        ? `score ${r.interestScore} < ${config.analysis.minInterestScore}`
-        : r.dataQuality === 'low'
-          ? 'dataQuality=low'
-          : null;
-    logger.info(
-      `[pipeline] screen result: ${r.fixture.homeTeam} vs ${r.fixture.awayTeam}` +
-      ` | score=${r.interestScore} | quality=${r.dataQuality} | shouldAnalyze=${r.shouldAnalyze}` +
-      (fail ? ` | REJECTED: ${fail}` : ' | PASSED')
-    );
-  }
-
-  const candidates = config.analysis.forceAnalysis
-    ? screeningResults.slice(0, config.analysis.maxCandidatesFromScreening)
-    : screeningResults
-        .filter(
-          (r) =>
-            r.shouldAnalyze &&
-            r.interestScore >= config.analysis.minInterestScore &&
-            r.dataQuality !== 'low'
-        )
-        .slice(0, config.analysis.maxCandidatesFromScreening);
-
-  if (config.analysis.forceAnalysis) {
-    logger.warn('[pipeline] FORCE_ANALYSIS=true — screening gates bypassed, all fixtures sent to expert analysis');
-  }
-
-  logger.info(
-    `[pipeline] screening: ${screeningResults.length} assessed, ${candidates.length} selected for deep analysis`
-  );
-
-  if (candidates.length === 0) {
-    logger.info('[pipeline] no candidates passed screening threshold');
-    return [];
-  }
-
-  // ── Phase 2: Enrich → Expert analysis → Publication gate ─────────────────
   const results: AnalysisResult[] = [];
 
-  for (const candidate of candidates) {
-    try {
-      logger.info(
-        `[pipeline] enriching ${candidate.fixture.homeTeam} vs ${candidate.fixture.awayTeam} (score: ${candidate.interestScore})`
-      );
+  logger.info(`[pipeline] sending all ${fixtures.length} fixture(s) to deep analysis`);
 
-      const matchData = await enrichFixture(candidate.fixture);
+  for (const fixture of fixtures) {
+    try {
+      logger.info(`[pipeline] enriching ${fixture.homeTeam} vs ${fixture.awayTeam}`);
+
+      const matchData = await enrichFixture(fixture);
 
       // Reject stale/low-quality data before spending expert reasoning tokens
       if (matchData.dataQuality === 'low') {
         logger.info(
-          `[pipeline] skipping ${candidate.fixture.id} — data quality is low: ${matchData.dataQualityNotes.join('; ')}`
+          `[pipeline] skipping ${fixture.id} — data quality is low: ${matchData.dataQualityNotes.join('; ')}`
         );
         continue;
       }
 
       // Load cached analysis if available (avoids repeat OpenAI call on restart)
-      let analysis: BettingAnalysis | null = loadAnalysis(date, candidate.fixture.id);
+      let analysis: BettingAnalysis | null = loadAnalysis(date, fixture.id);
       if (analysis) {
-        logger.info(`[pipeline] analysis loaded from checkpoint for ${candidate.fixture.id}`);
+        logger.info(`[pipeline] analysis loaded from checkpoint for ${fixture.id}`);
       } else {
         analysis = await analyzeMatch(matchData);
         if (!analysis) continue;
-        saveAnalysis(date, candidate.fixture.id, analysis);
+        saveAnalysis(date, fixture.id, analysis);
       }
 
       const gate = await passesPublicationGate(matchData, analysis);
       if (!gate.pass) {
-        logger.info(`[pipeline] "${candidate.fixture.id}" blocked by publication gate: ${gate.reason}`);
+        logger.info(`[pipeline] "${fixture.id}" blocked by publication gate: ${gate.reason}`);
         continue;
       }
 
@@ -191,7 +131,7 @@ export async function runFullAnalysisPipeline(
       );
     } catch (err) {
       logger.error(
-        `[pipeline] failed to analyze ${candidate.fixture.homeTeam} vs ${candidate.fixture.awayTeam}: ${String(err)}`
+        `[pipeline] failed to analyze ${fixture.homeTeam} vs ${fixture.awayTeam}: ${String(err)}`
       );
     }
 

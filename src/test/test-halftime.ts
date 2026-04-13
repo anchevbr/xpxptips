@@ -18,7 +18,8 @@ import path from 'path';
 import { logger } from '../utils/logger';
 import { generateHalftimeNarrative } from '../halftime/narrator';
 import { sendToGroup } from '../bot/telegram';
-import type { PickRecord, BettingAnalysis } from '../types';
+import { loadTestPick } from './load-test-pick';
+import type { PickRecord } from '../types';
 
 const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
 
@@ -128,86 +129,6 @@ function formatHalftimeMessage(
   );
 }
 
-// ─── Load one pick from checkpoints ──────────────────────────────────────────
-
-function loadFirstPick(targetDate: string, sportFilter?: string): PickRecord | null {
-  // Load fixtures metadata
-  const fixturesFile = path.join(CHECKPOINT_BASE, targetDate, 'fixtures.json');
-  if (!fs.existsSync(fixturesFile)) {
-    logger.error(`[test-halftime] fixtures checkpoint not found for ${targetDate}`);
-    return null;
-  }
-  const { fixtures } = JSON.parse(fs.readFileSync(fixturesFile, 'utf-8')) as {
-    fixtures: Array<{ id: string; league: string; homeTeam: string; awayTeam: string; date: string }>;
-  };
-  if (fixtures.length === 0) {
-    logger.error(`[test-halftime] no fixtures in checkpoint for ${targetDate}`);
-    return null;
-  }
-
-  // Load analysis files
-  const analysisDir = path.join(CHECKPOINT_BASE, targetDate, 'analysis');
-  if (!fs.existsSync(analysisDir)) {
-    logger.error(`[test-halftime] no analysis dir for ${targetDate}`);
-    return null;
-  }
-
-  const analysisFiles = fs.readdirSync(analysisDir).filter(f => f.endsWith('.json'));
-  if (analysisFiles.length === 0) {
-    logger.error(`[test-halftime] no analysis files for ${targetDate}`);
-    return null;
-  }
-
-  // Pick a random analysis file, optionally filtered by sport
-  let eligibleFiles = analysisFiles;
-  if (sportFilter) {
-    const fixtureMap = Object.fromEntries(fixtures.map(f => [f.id, f]));
-    eligibleFiles = analysisFiles.filter(file => {
-      const id = file.replace('.json', '');
-      const fix = fixtureMap[id];
-      if (!fix) return false;
-      const bball = isBasketball(fix.league);
-      if (sportFilter === 'football') return !bball;
-      if (sportFilter === 'basketball') return bball;
-      return true;
-    });
-    if (eligibleFiles.length === 0) {
-      logger.error(`[test-halftime] no ${sportFilter} fixtures found for ${targetDate}`);
-      return null;
-    }
-  }
-
-  const file = eligibleFiles[Math.floor(Math.random() * eligibleFiles.length)]!;
-  const fixtureId = file.replace('.json', '');
-  const { analysis } = JSON.parse(
-    fs.readFileSync(path.join(analysisDir, file), 'utf-8')
-  ) as { analysis: BettingAnalysis };
-
-  // Find matching fixture metadata
-  const fixture = fixtures.find(f => f.id === fixtureId);
-  if (!fixture) {
-    logger.error(`[test-halftime] fixture metadata not found for ${fixtureId}`);
-    return null;
-  }
-
-  return {
-    fixtureId,
-    date: targetDate,
-    league: fixture.league,
-    homeTeam: fixture.homeTeam,
-    awayTeam: fixture.awayTeam,
-    postedAt: new Date().toISOString(),
-    finalPick: analysis.finalPick,
-    bestBettingMarket: analysis.bestBettingMarket,
-    confidence: analysis.confidence,
-    outcome: null,
-    actualScore: null,
-    resolvedAt: null,
-    halfTimeNotifiedAt: null,
-    fullTimeNotifiedAt: null,
-  };
-}
-
 // ─── Scenario scores ──────────────────────────────────────────────────────────
 
 type Scenario = 'win' | 'loss' | 'withdraw';
@@ -304,7 +225,7 @@ async function main(): Promise<void> {
   logger.info(`Target date: ${targetDate}`);
   logger.info('');
 
-  const pick = loadFirstPick(targetDate, sportFilter || undefined);
+  const pick = await loadTestPick(targetDate, sportFilter || undefined, 'test-halftime');
   if (!pick) process.exit(1);
 
   logger.info(`[test-halftime] fixture: ${pick.homeTeam} vs ${pick.awayTeam} (${pick.league})`);

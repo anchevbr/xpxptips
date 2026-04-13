@@ -5,12 +5,13 @@
 // explaining what went right and wrong during the reporting period.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import OpenAI from 'openai';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { createOpenAIClient } from '../utils/openai-client';
+import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
 import type { PickRecord } from '../types';
 
-const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: 90_000 });
+const openai = createOpenAIClient();
 
 /**
  * Generates a 3–5 sentence Greek-language narrative analysis for the period.
@@ -20,6 +21,7 @@ export async function generateNarrative(
   picks: PickRecord[],
   periodLabel: string
 ): Promise<string> {
+  const model = config.openai.reportModel;
   const resolved = picks.filter(p => p.outcome !== null && p.outcome !== 'void');
   if (resolved.length === 0) {
     return 'Δεν υπάρχουν επαρκή αποτελέσματα για σχολιασμό αυτή την περίοδο.';
@@ -46,13 +48,25 @@ export async function generateNarrative(
     `Γράψε ΜΟΝΟ τον σχολιασμό, χωρίς τίτλο ή εισαγωγή.`;
 
   try {
-    const resp = await openai.responses.create({
-      model: config.openai.model,
-      input: prompt,
-      tools: [{ type: 'web_search_preview' }],
-    } as Parameters<typeof openai.responses.create>[0]);
+    const resp = await runResponseWithActivityLogging({
+      client: openai,
+      scope: 'report-narrative',
+      model,
+      timeoutMs: config.openai.timeoutMs,
+      usageMeta: {
+        picks: picks.length,
+        resolved: resolved.length,
+        period: periodLabel,
+      },
+      params: {
+        model,
+        input: prompt,
+        reasoning: { effort: config.openai.reportEffort },
+        tools: [{ type: 'web_search_preview' }],
+      } as Parameters<typeof openai.responses.stream>[0],
+    });
 
-    const text = (resp as { output_text?: string }).output_text ?? '';
+    const text = extractResponseOutputText(resp);
     return text.trim() || 'Σχολιασμός δεν ήταν διαθέσιμος.';
   } catch (err) {
     logger.warn(`[report-generator] narrative failed: ${String(err)}`);

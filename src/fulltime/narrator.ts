@@ -6,13 +6,14 @@
 // If the tip lost: explains why with the stats/events that prevented the win.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import OpenAI from 'openai';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { createOpenAIClient } from '../utils/openai-client';
+import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
 import type { PickRecord } from '../types';
 import type { EventStat, LineupPlayer } from '../halftime/stats-fetcher';
 
-const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: 90_000 });
+const openai = createOpenAIClient();
 
 function formatStatsBlock(stats: EventStat[]): string {
   if (stats.length === 0) return 'Δεν υπάρχουν διαθέσιμα στατιστικά.';
@@ -47,6 +48,7 @@ export async function generateFulltimeNarrative(
   stats: EventStat[],
   lineup: LineupPlayer[] = []
 ): Promise<string> {
+  const model = config.openai.commentaryModel;
   const scoreStr =
     homeScore !== null && awayScore !== null ? `${homeScore}–${awayScore}` : 'Άγνωστο';
 
@@ -87,13 +89,27 @@ export async function generateFulltimeNarrative(
     `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links ή παραπομπές σε πηγές.`;
 
   try {
-    const resp = await openai.responses.create({
-      model: config.openai.model,
-      input: prompt,
-      tools: [{ type: 'web_search_preview' }],
-    } as Parameters<typeof openai.responses.create>[0]);
+    const resp = await runResponseWithActivityLogging({
+      client: openai,
+      scope: 'fulltime-commentary',
+      model,
+      timeoutMs: config.openai.timeoutMs,
+      usageMeta: {
+        fixtureId: pick.fixtureId,
+        homeTeam: pick.homeTeam,
+        awayTeam: pick.awayTeam,
+        league: pick.league,
+        outcome,
+      },
+      params: {
+        model,
+        input: prompt,
+        reasoning: { effort: config.openai.commentaryEffort },
+        tools: [{ type: 'web_search_preview' }],
+      } as Parameters<typeof openai.responses.stream>[0],
+    });
 
-    const raw = (resp as { output_text?: string }).output_text ?? '';
+    const raw = extractResponseOutputText(resp);
     const text = raw.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
     return text || 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος.';
   } catch (err) {

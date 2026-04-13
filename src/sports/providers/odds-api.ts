@@ -7,11 +7,12 @@
 // API Docs: https://the-odds-api.com/liveapi/guides/v4/
 // ─────────────────────────────────────────────────────────────────────────────
 
-import OpenAI from 'openai';
 import { config } from '../../config';
 import { logger } from '../../utils/logger';
+import { createOpenAIClient } from '../../utils/openai-client';
+import { logOpenAIUsage } from '../../utils/openai-usage';
 
-const openai = new OpenAI({ apiKey: config.openai.apiKey, timeout: 15_000 });
+const openai = createOpenAIClient();
 
 const BASE_URL = 'https://api.the-odds-api.com/v4';
 
@@ -136,7 +137,7 @@ function resolveH2HOutcomeName(outcomeName: string, eventOdds: EventOdds): strin
 /**
  * Step 1 of odds fetching — uses the FREE /events endpoint (no quota cost) to find
  * the API's event ID and canonical team names for a fixture.
- * Uses gpt-5.4-mini (low effort) to reliably match any team name variant.
+ * Uses the configured OpenAI model and reasoning effort to match team name variants.
  */
 async function resolveEventId(
   sportKey: string,
@@ -144,6 +145,8 @@ async function resolveEventId(
   awayTeam: string,
   key: string
 ): Promise<ApiEvent | null> {
+  const model = config.openai.model;
+  const effort = config.openai.expertEffort;
   const url = `${BASE_URL}/sports/${sportKey}/events?apiKey=${key}`;
   const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!res.ok) return null;
@@ -158,10 +161,17 @@ async function resolveEventId(
 
   try {
     const resp = await openai.responses.create({
-      model: 'gpt-5.4-mini',
+      model,
       input: [{ role: 'user', content: prompt }],
-      reasoning: { effort: 'low' },
+      reasoning: { effort },
     } as Parameters<typeof openai.responses.create>[0]);
+
+    logOpenAIUsage('odds-event-match', model, resp as { id?: string; usage?: unknown }, {
+      sportKey,
+      homeTeam,
+      awayTeam,
+      events: events.length,
+    });
 
     const raw = ((resp as { output_text?: string }).output_text ?? '').trim();
     const idx = parseInt(raw, 10);

@@ -7,6 +7,7 @@
 // Premium key: set THESPORTSDB_API_KEY in .env (100 req/min)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { config } from '../../config';
 import { logger } from '../../utils/logger';
 import type { Fixture, Competition } from '../../types';
 
@@ -89,21 +90,46 @@ function apiKey(): string {
   return process.env['THESPORTSDB_API_KEY'] ?? '123';
 }
 
-async function fetchLeagueSeason(leagueId: string, season: string): Promise<V2Event[]> {
+function isTimeoutError(err: unknown): boolean {
+  const text = String(err).toLowerCase();
+  return text.includes('timeout') || text.includes('aborted');
+}
+
+async function fetchLeagueSeason(leagueId: string, season: string, displayName: string): Promise<V2Event[]> {
   const url = `${V2_BASE_URL}/schedule/league/${leagueId}/${season}`;
+  const timeoutMs = config.sports.theSportsDbTimeoutMs;
+
   try {
-    const res = await fetch(url, {
+    const requestInit: RequestInit = {
       headers: { 'X-API-KEY': apiKey() },
-      signal: AbortSignal.timeout(10_000),
+    };
+
+    if (timeoutMs > 0) {
+      requestInit.signal = AbortSignal.timeout(timeoutMs);
+    }
+
+    const res = await fetch(url, {
+      ...requestInit,
     });
     if (!res.ok) {
-      logger.warn(`[thesportsdb] HTTP ${res.status} for league ${leagueId} season ${season}`);
+      logger.warn(
+        `[thesportsdb] ${displayName} (league ${leagueId}, season ${season}) failed with HTTP ${res.status}`
+      );
       return [];
     }
     const data = (await res.json()) as V2ScheduleResponse;
     return data.schedule ?? [];
   } catch (err) {
-    logger.warn(`[thesportsdb] request failed for league ${leagueId}: ${String(err)}`);
+    if (isTimeoutError(err)) {
+      const timeoutText = timeoutMs > 0 ? `${timeoutMs}ms` : 'disabled timeout';
+      logger.warn(
+        `[thesportsdb] ${displayName} (league ${leagueId}, season ${season}) timed out after ${timeoutText} — continuing with other leagues`
+      );
+    } else {
+      logger.warn(
+        `[thesportsdb] ${displayName} (league ${leagueId}, season ${season}) request failed: ${String(err)}`
+      );
+    }
     return [];
   }
 }
@@ -118,7 +144,7 @@ export async function fetchFixturesViaTheSportsDB(date: string): Promise<Fixture
 
   for (const { leagueId, competition, displayName, singleYearSeason } of TARGET_LEAGUES) {
     const season = getCurrentSeason(date, singleYearSeason);
-    const events = await fetchLeagueSeason(leagueId, season);
+    const events = await fetchLeagueSeason(leagueId, season, displayName);
 
     // Small delay to avoid bursting — premium allows 100 req/min
     await new Promise((resolve) => setTimeout(resolve, 300));

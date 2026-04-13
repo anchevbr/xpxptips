@@ -7,7 +7,7 @@
  *             exits with code 1 (simulates a server crash/restart).
  *
  * Phase 2  — detects the existing checkpoint, loads fixtures from disk,
- *             skips any already-checkpointed screening/analysis, and
+ *             skips any already-checkpointed analysis, and
  *             runs/posts only what is missing — as if recovering from crash.
  *
  * Usage:
@@ -105,7 +105,7 @@ async function phase2(): Promise<void> {
     logger.info(`[crash-test] ── processing: ${fixture.homeTeam} vs ${fixture.awayTeam}`);
 
     try {
-      // runFullAnalysisPipeline internally checks checkpoints for screening + analysis
+      // runFullAnalysisPipeline internally checks checkpoints for expert analysis
       const results = await runFullAnalysisPipeline([fixture], DATE);
 
       if (results.length > 0) {

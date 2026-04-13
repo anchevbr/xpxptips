@@ -7,7 +7,7 @@
 // final score, calls GPT for the narrative, formats the message and sends
 // it to Telegram — no real TheSportsDB poll needed.
 //
-// Runs three scenarios: WON, LOST, PUSH (exact line).
+// Runs win/loss plus push only when the selected market can actually push.
 //
 // Usage:
 //   npm run test-fulltime
@@ -23,7 +23,8 @@ import { logger } from '../utils/logger';
 import { generateFulltimeNarrative } from '../fulltime/narrator';
 import { determineOutcome } from '../fulltime/stats-fetcher';
 import { sendToGroup } from '../bot/telegram';
-import type { PickRecord, BettingAnalysis } from '../types';
+import { loadTestPick } from './load-test-pick';
+import type { PickRecord } from '../types';
 
 const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
 
@@ -118,16 +119,30 @@ function formatFulltimeMessage(
 
 type Scenario = 'win' | 'loss' | 'push';
 
+function extractLine(finalPick: string): number | null {
+  const match = /(\d+(?:\.\d+)?)/.exec(finalPick);
+  return match ? parseFloat(match[1]!) : null;
+}
+
+function supportsPush(market: string, finalPick: string): boolean {
+  if (market !== 'totals/over' && market !== 'totals/under') return false;
+  const line = extractLine(finalPick);
+  if (line === null) return false;
+  return Number.isInteger(line);
+}
+
 function scenarioScore(
   scenario: Scenario,
   market: string,
+  finalPick: string,
   league: string
 ): { home: number; away: number } {
   const bball = isBasketball(league);
+  const line = extractLine(finalPick);
 
   if (bball) {
-    // Approximate: line around 170 for most games
-    const halfLine = 85;
+    const targetTotal = line ?? 170;
+    const halfLine = Math.round(targetTotal / 2);
     switch (scenario) {
       case 'win':
         return market === 'totals/over'
@@ -138,7 +153,7 @@ function scenarioScore(
           ? { home: halfLine - 12, away: halfLine - 8  } // not enough scoring
           : { home: halfLine + 8,  away: halfLine + 10 }; // too many points
       case 'push':
-        return { home: 85, away: 85 }; // 170 exactly
+        return { home: halfLine, away: targetTotal - halfLine }; // exact total line
     }
   }
 
@@ -159,95 +174,20 @@ function scenarioScore(
     case 'totals/over':
       return scenario === 'win'  ? { home: 2, away: 2 } // 4 goals
            : scenario === 'loss' ? { home: 1, away: 0 } // 1 goal
-           : { home: 1, away: 1 }; // 2 goals (under 2.5 push doesn't happen at 2.5; over 2.5 push at 2 total isn't real — use as "close loss")
+           : line !== null ? { home: Math.floor(line / 2), away: Math.ceil(line / 2) } : { home: 1, away: 1 };
     case 'totals/under':
     default:
       return scenario === 'win'  ? { home: 1, away: 1 } // 2 goals < 2.5
            : scenario === 'loss' ? { home: 2, away: 1 } // 3 goals > 2.5
-           : { home: 1, away: 2 }; // also 3, a clear loss
+           : line !== null ? { home: Math.floor(line / 2), away: Math.ceil(line / 2) } : { home: 1, away: 2 };
   }
-}
-
-// ─── Load one pick from checkpoints ──────────────────────────────────────────
-
-function loadFirstPick(targetDate: string, sportFilter?: string): PickRecord | null {
-  const fixturesFile = path.join(CHECKPOINT_BASE, targetDate, 'fixtures.json');
-  if (!fs.existsSync(fixturesFile)) {
-    logger.error(`[test-fulltime] fixtures checkpoint not found for ${targetDate}`);
-    return null;
-  }
-  const { fixtures } = JSON.parse(fs.readFileSync(fixturesFile, 'utf-8')) as {
-    fixtures: Array<{ id: string; league: string; homeTeam: string; awayTeam: string; date: string }>;
-  };
-  if (fixtures.length === 0) {
-    logger.error(`[test-fulltime] no fixtures in checkpoint for ${targetDate}`);
-    return null;
-  }
-
-  const analysisDir = path.join(CHECKPOINT_BASE, targetDate, 'analysis');
-  if (!fs.existsSync(analysisDir)) {
-    logger.error(`[test-fulltime] no analysis dir for ${targetDate}`);
-    return null;
-  }
-
-  let analysisFiles = fs.readdirSync(analysisDir).filter(f => f.endsWith('.json'));
-  if (analysisFiles.length === 0) {
-    logger.error(`[test-fulltime] no analysis files for ${targetDate}`);
-    return null;
-  }
-
-  if (sportFilter) {
-    const fixtureMap = Object.fromEntries(fixtures.map(f => [f.id, f]));
-    analysisFiles = analysisFiles.filter(file => {
-      const id  = file.replace('.json', '');
-      const fix = fixtureMap[id];
-      if (!fix) return false;
-      const bball = isBasketball(fix.league);
-      if (sportFilter === 'football') return !bball;
-      if (sportFilter === 'basketball') return bball;
-      return true;
-    });
-    if (analysisFiles.length === 0) {
-      logger.error(`[test-fulltime] no ${sportFilter} fixtures found for ${targetDate}`);
-      return null;
-    }
-  }
-
-  const file      = analysisFiles[Math.floor(Math.random() * analysisFiles.length)]!;
-  const fixtureId = file.replace('.json', '');
-  const { analysis } = JSON.parse(
-    fs.readFileSync(path.join(analysisDir, file), 'utf-8')
-  ) as { analysis: BettingAnalysis };
-
-  const fixture = fixtures.find(f => f.id === fixtureId);
-  if (!fixture) {
-    logger.error(`[test-fulltime] fixture metadata not found for ${fixtureId}`);
-    return null;
-  }
-
-  return {
-    fixtureId,
-    date: targetDate,
-    league: fixture.league,
-    homeTeam: fixture.homeTeam,
-    awayTeam: fixture.awayTeam,
-    postedAt: new Date().toISOString(),
-    finalPick: analysis.finalPick,
-    bestBettingMarket: analysis.bestBettingMarket,
-    confidence: analysis.confidence,
-    outcome: null,
-    actualScore: null,
-    resolvedAt: null,
-    halfTimeNotifiedAt: null,
-    fullTimeNotifiedAt: null,
-  };
 }
 
 // ─── Single scenario runner ───────────────────────────────────────────────────
 
 async function runScenario(pick: PickRecord, scenario: Scenario): Promise<void> {
   const bball = isBasketball(pick.league);
-  const { home, away } = scenarioScore(scenario, pick.bestBettingMarket, pick.league);
+  const { home, away } = scenarioScore(scenario, pick.bestBettingMarket, pick.finalPick, pick.league);
   const stats = bball ? randomBasketballStats() : randomFootballStats();
 
   // Verify the score actually produces the expected outcome
@@ -278,7 +218,7 @@ async function main(): Promise<void> {
 
   logger.info(`[test-fulltime] loading pick — date: ${targetDate}, sport: ${sportFilter ?? 'any'}`);
 
-  const pick = loadFirstPick(targetDate, sportFilter);
+  const pick = await loadTestPick(targetDate, sportFilter, 'test-fulltime');
   if (!pick) {
     logger.error('[test-fulltime] no pick loaded — aborting');
     process.exit(1);
@@ -286,13 +226,22 @@ async function main(): Promise<void> {
 
   logger.info(`[test-fulltime] using: ${pick.homeTeam} vs ${pick.awayTeam} | ${pick.finalPick} (${pick.bestBettingMarket})`);
 
-  for (const scenario of ['win', 'loss', 'push'] as Scenario[]) {
+  const scenarios: Scenario[] = ['win', 'loss'];
+  if (supportsPush(pick.bestBettingMarket, pick.finalPick)) {
+    scenarios.push('push');
+  } else {
+    logger.info(
+      `[test-fulltime] push scenario not supported for ${pick.bestBettingMarket} / "${pick.finalPick}" — running win/loss only`
+    );
+  }
+
+  for (const scenario of scenarios) {
     logger.info(`\n${'─'.repeat(60)}`);
     logger.info(`[test-fulltime] ↓ Running scenario: ${scenario.toUpperCase()}`);
     await runScenario(pick, scenario);
   }
 
-  logger.info('\n[test-fulltime] ✅ All 3 scenarios sent');
+  logger.info(`\n[test-fulltime] ✅ ${scenarios.length} scenario(s) sent`);
 }
 
 main().catch(err => {

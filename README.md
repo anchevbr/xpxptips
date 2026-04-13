@@ -11,7 +11,7 @@ This repository is built around three ideas:
 ## Current feature set
 
 - Pre-match tip generation for football and basketball fixtures.
-- Two-stage AI analysis: screening first, deep expert analysis second.
+- Direct expert analysis for every fetched fixture, followed by hard publication gates.
 - Real bookmaker market validation before a tip can be published.
 - Broadcast-only Telegram posting with HTML formatting and disabled link previews.
 - Automatic halftime updates for each published fixture.
@@ -19,7 +19,7 @@ This repository is built around three ideas:
 - Weekly report posting every Monday.
 - Monthly report posting on the first Monday of each month.
 - Pinning for weekly/monthly reports.
-- Checkpoint-based crash recovery for fixture discovery, screening, and expert analysis.
+- Checkpoint-based crash recovery for fixture discovery and expert analysis.
 - Manual test entry scripts under `src/test/` for end-to-end and feature-specific validation.
 
 ## High-level architecture
@@ -30,7 +30,6 @@ src/
 ├── config.ts
 ├── ai-analysis/
 │   ├── index.ts
-│   ├── screener.ts
 │   ├── expert.ts
 │   ├── prompts.ts
 │   ├── schema.ts
@@ -127,20 +126,20 @@ Supported competitions in the current code:
 | NBA | Basketball | 4387 |
 | EuroLeague | Basketball | 4546 |
 
-### 4. Screening phase
+### 4. Analysis flow
 
-The first AI pass is a screening step. Its purpose is not to produce a final pick but to rank the slate and avoid spending deep-analysis tokens on low-interest or weak-data matches.
+There is no screening phase anymore. Every fetched fixture is enriched and sent to the expert model.
 
 Pipeline behavior:
 
-- screening results are checkpointed per fixture,
-- screening results are reused on restart,
-- only the top fixtures that pass the minimum interest and quality checks are forwarded,
-- `FORCE_ANALYSIS=true` can bypass the normal screening gate for testing.
+- every fixture is enriched with provider data before expert reasoning,
+- expert analysis runs for every fetched fixture unless an analysis checkpoint already exists,
+- low-quality or unsupported fixtures are filtered later by the publication gates rather than by a prefilter,
+- `FORCE_ANALYSIS=true` can bypass the scheduled-status and odds-market gates for testing.
 
 ### 5. Enrichment and odds loading
 
-For each candidate fixture, the pipeline enriches the match with:
+For each fixture, the pipeline enriches the match with:
 
 - structured TheSportsDB context,
 - recent form and standings where available,
@@ -276,12 +275,11 @@ Current model usage in the codebase:
 
 | Use case | Model |
 | --- | --- |
-| Screening | `gpt-5.4` |
-| Expert analysis | `gpt-5.4` |
-| Halftime commentary | `gpt-5.4` |
-| Full-time commentary | `gpt-5.4` |
+| Expert analysis | `gpt-5.4-mini` |
+| Halftime commentary | `gpt-5.4-mini` |
+| Full-time commentary | `gpt-5.4-mini` |
 | Odds event-name matching | `gpt-5.4-mini` |
-| Report narratives | `gpt-5.4` |
+| Report narratives | `gpt-5.4-mini` |
 
 The model is used for reasoning and explanation. Fixtures, live statuses, stats, and odds come from provider APIs.
 
@@ -368,8 +366,6 @@ Current layout:
 ```text
 data/checkpoints/{date}/
 ├── fixtures.json
-├── screening/
-│   └── {fixtureId}.json
 └── analysis/
     └── {fixtureId}.json
 ```
@@ -377,7 +373,6 @@ data/checkpoints/{date}/
 What is checkpointed:
 
 - fetched fixtures for the day,
-- per-fixture screening results,
 - per-fixture expert analysis.
 
 This allows the process to resume without repeating expensive steps after a restart.
@@ -423,19 +418,21 @@ Important implementation detail:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_MODEL` | `gpt-5.4` | Main model for analysis and commentary |
-| `OPENAI_SCREENING_EFFORT` | `medium` | Reasoning effort for screening |
-| `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for expert analysis |
+| `OPENAI_MODEL` | `gpt-5.4-mini` | Main model for expert analysis and odds event matching |
+| `OPENAI_COMMENTARY_MODEL` | `gpt-5.4-mini` | Model for halftime and full-time commentary |
+| `OPENAI_REPORT_MODEL` | `gpt-5.4-mini` | Model for weekly and monthly report narratives |
+| `OPENAI_COMMENTARY_EFFORT` | `xhigh` | Reasoning effort for halftime and full-time commentary |
+| `OPENAI_REPORT_EFFORT` | `xhigh` | Reasoning effort for report narratives |
+| `OPENAI_EXPERT_EFFORT` | `xhigh` | Reasoning effort for expert analysis and expert web-search context |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
+| `THESPORTSDB_TIMEOUT_MS` | `10000` | Timeout per TheSportsDB league request; set to `0` to disable |
 | `PLANNING_CRON` | `0 2 * * *` | Nightly planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
 | `HOURS_BEFORE_KICKOFF` | `8` | Pre-match posting lead time |
-| `MIN_INTEREST_SCORE` | `5` | Minimum screening score |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |
 | `MAX_TIPS_PER_DAY` | `5` | Daily publication cap |
-| `MAX_CANDIDATES_FROM_SCREENING` | `10` | Max fixtures forwarded to expert phase |
 | `MIN_ACCEPTABLE_ODDS` | `1.50` | Gate 5 minimum odds |
-| `FORCE_ANALYSIS` | `false` | Dev-only bypass for screening, odds gate, and dedup |
+| `FORCE_ANALYSIS` | `false` | Dev-only bypass for scheduled-status checks, odds gate, and dedup |
 | `DB_PATH` | `./data/posted.db` | Dedup store base path |
 | `LOG_LEVEL` | `info` | Winston log level |
 
@@ -496,10 +493,9 @@ npm run test-runner 2026-04-16
 This:
 
 1. fetches fixtures,
-2. runs screening,
-3. runs expert analysis,
-4. applies the publication gate,
-5. posts any qualifying tips to Telegram.
+2. runs expert analysis for every fetched fixture,
+3. applies the publication gate,
+4. posts any qualifying tips to Telegram.
 
 This is a real integration path, not a mocked dry run.
 
@@ -561,7 +557,7 @@ Behavior:
 
 | Path | Purpose |
 | --- | --- |
-| `data/checkpoints/` | Resume state for fixtures, screening, and analysis |
+| `data/checkpoints/` | Resume state for fixtures and expert analysis |
 | `data/picks-log.json` | Published picks plus resolved live/report metadata |
 | `data/posted.json` | Dedup store in normal usage |
 
@@ -572,6 +568,8 @@ Behavior:
 | `logs/combined.log` | Main structured runtime log |
 | `logs/error.log` | Error-only log |
 | `logs/picks.log` | Audit-style log for published picks |
+
+Every successful OpenAI response also writes an `openai-usage` line into the normal application logs with the exact API-reported `input_tokens`, `output_tokens`, and `total_tokens` for that call.
 
 ## Operational notes
 

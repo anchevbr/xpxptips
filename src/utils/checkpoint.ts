@@ -5,15 +5,14 @@
 // where it left off after a server restart.
 //
 // Layout: data/checkpoints/{date}/
-//   fixtures.json              — all fetched fixtures for the date
-//   screening/{fixtureId}.json — per-fixture screening result
-//   analysis/{fixtureId}.json  — per-fixture expert analysis
+//   fixtures.json             — all fetched fixtures for the date
+//   analysis/{fixtureId}.json — per-fixture expert analysis
 // ─────────────────────────────────────────────────────────────────────────────
 
 import fs from 'fs';
 import path from 'path';
 import { logger } from './logger';
-import type { Fixture, ScreeningResult, BettingAnalysis } from '../types';
+import type { Fixture, BettingAnalysis } from '../types';
 
 const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
 
@@ -58,19 +57,6 @@ export function loadFixtures(date: string): Fixture[] | null {
   if (!data) return null;
   logger.info(`[checkpoint] fixtures loaded from disk for ${date} (${data.fixtures.length} fixture(s))`);
   return data.fixtures;
-}
-
-// ── Screening ─────────────────────────────────────────────────────────────────
-
-export function saveScreeningResult(date: string, result: ScreeningResult): void {
-  const file = cpDir(date, 'screening', `${result.fixture.id}.json`);
-  safeWrite(file, { savedAt: new Date().toISOString(), result });
-}
-
-export function loadScreeningResult(date: string, fixtureId: string): ScreeningResult | null {
-  const file = cpDir(date, 'screening', `${fixtureId}.json`);
-  const data = safeRead<{ result: ScreeningResult }>(file);
-  return data?.result ?? null;
 }
 
 // ── Expert analysis ───────────────────────────────────────────────────────────
