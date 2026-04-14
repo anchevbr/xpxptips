@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import type { BettingAnalysis, Fixture } from '../types';
+import type { BettingAnalysis, Fixture, MatchData } from '../types';
 
 /**
  * Validates and sanitizes the raw object returned by the model before it
@@ -7,8 +7,9 @@ import type { BettingAnalysis, Fixture } from '../types';
  */
 export function validateAnalysis(
   raw: unknown,
-  fixture: Fixture
+  matchData: MatchData
 ): BettingAnalysis | null {
+  const { fixture } = matchData;
   if (typeof raw !== 'object' || raw === null) {
     logger.warn('[validator] analysis is not an object');
     return null;
@@ -68,6 +69,13 @@ export function validateAnalysis(
     );
   }
 
+  const bestBettingMarket = String(obj['bestBettingMarket']).trim();
+  const finalPick = canonicalizeFinalPick(
+    bestBettingMarket,
+    String(obj['finalPick']).trim(),
+    matchData,
+  );
+
   return {
     event: String(obj['event']).trim(),
     competition: String(obj['competition']).trim(),
@@ -76,14 +84,63 @@ export function validateAnalysis(
     awayTeam: fixture.awayTeam,
     keyFacts: (obj['keyFacts'] as unknown[]).map(String).filter(Boolean),
     riskFactors: (obj['riskFactors'] as unknown[]).map(String).filter(Boolean),
-    bestBettingMarket: String(obj['bestBettingMarket']).trim(),
-    finalPick: String(obj['finalPick']).trim(),
+    bestBettingMarket,
+    finalPick,
     confidence: Number(obj['confidence']),
     shortReasoning: String(obj['shortReasoning']).trim(),
     dataQualityNote: String(obj['dataQualityNote']).trim(),
     isPickRecommended: Boolean(obj['isPickRecommended']),
     noPickReason: typeof obj['noPickReason'] === 'string' ? obj['noPickReason'] : undefined,
   };
+}
+
+function extractPickLine(finalPick: string): number | null {
+  const match = /(\d+(?:\.\d+)?)/.exec(finalPick);
+  return match ? parseFloat(match[1]!) : null;
+}
+
+function formatPickLine(line: number): string {
+  return Number.isInteger(line) ? line.toFixed(0) : line.toString();
+}
+
+function canonicalizeFinalPick(
+  market: string,
+  rawFinalPick: string,
+  matchData: MatchData,
+): string {
+  const trimmed = rawFinalPick.trim();
+  if (!trimmed) return trimmed;
+
+  switch (market) {
+    case 'h2h/home':
+      return matchData.fixture.competition === 'football'
+        ? 'Άσσος'
+        : `Νίκη ${matchData.fixture.homeTeam}`;
+    case 'h2h/draw':
+      return 'Ισοπαλία';
+    case 'h2h/away':
+      return matchData.fixture.competition === 'football'
+        ? 'Διπλό'
+        : `Νίκη ${matchData.fixture.awayTeam}`;
+    case 'btts/yes':
+      return 'G/G';
+    case 'btts/no':
+      return 'NG';
+    case 'totals/over': {
+      const line = extractPickLine(trimmed)
+        ?? matchData.availableOdds?.totalsLine
+        ?? (matchData.fixture.competition === 'football' ? 2.5 : null);
+      return line === null ? trimmed : `Over ${formatPickLine(line)}`;
+    }
+    case 'totals/under': {
+      const line = extractPickLine(trimmed)
+        ?? matchData.availableOdds?.totalsLine
+        ?? (matchData.fixture.competition === 'football' ? 2.5 : null);
+      return line === null ? trimmed : `Under ${formatPickLine(line)}`;
+    }
+    default:
+      return trimmed;
+  }
 }
 
 /** Case-insensitive partial match for team name validation */

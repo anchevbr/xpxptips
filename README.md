@@ -104,9 +104,10 @@ Its job is to:
 1. determine the target date,
 2. fetch fixtures from TheSportsDB,
 3. write those fixtures to checkpoint storage,
-4. schedule a per-fixture pre-match job for each fixture at `kickoff - HOURS_BEFORE_KICKOFF`.
+4. schedule a per-fixture analysis job for each fixture at `kickoff - ANALYSIS_HOURS_BEFORE_KICKOFF`,
+5. send the tip immediately when that analysis finishes and passes all gates.
 
-If the process restarts, the scheduler attempts to recover today's pre-match jobs from checkpoint data.
+If the process restarts, the scheduler attempts to recover pending analysis jobs for today and tomorrow from checkpoint data.
 
 ### 3. Fixture discovery
 
@@ -275,11 +276,11 @@ Current model usage in the codebase:
 
 | Use case | Model |
 | --- | --- |
-| Expert analysis | `gpt-5.4-mini` |
-| Halftime commentary | `gpt-5.4-mini` |
-| Full-time commentary | `gpt-5.4-mini` |
-| Odds event-name matching | `gpt-5.4-mini` |
-| Report narratives | `gpt-5.4-mini` |
+| Expert analysis | `gpt-5.4` |
+| Halftime commentary | `gpt-5.4` |
+| Full-time commentary | `gpt-5.4` |
+| Odds event-name matching | `gpt-5.4` |
+| Report narratives | `gpt-5.4` |
 
 The model is used for reasoning and explanation. Fixtures, live statuses, stats, and odds come from provider APIs.
 
@@ -303,9 +304,11 @@ The Odds API is used for Gate 5 and odds display.
 Current behavior:
 
 - resolve canonical event identity first through the free `/events` endpoint,
-- use `gpt-5.4-mini` to match provider team-name variants,
+- use `gpt-5.4` to match provider team-name variants,
 - fetch the selected event's odds afterward,
+- use only the `eu` region from The Odds API,
 - average odds across bookmakers for validation and display,
+- for totals markets, average only bookmakers offering the same totals line as the chosen pick,
 - reject picks whose market is missing or priced below the configured threshold.
 
 Football currently fetches:
@@ -418,17 +421,19 @@ Important implementation detail:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_MODEL` | `gpt-5.4-mini` | Main model for expert analysis and odds event matching |
-| `OPENAI_COMMENTARY_MODEL` | `gpt-5.4-mini` | Model for halftime and full-time commentary |
-| `OPENAI_REPORT_MODEL` | `gpt-5.4-mini` | Model for weekly and monthly report narratives |
-| `OPENAI_COMMENTARY_EFFORT` | `xhigh` | Reasoning effort for halftime and full-time commentary |
-| `OPENAI_REPORT_EFFORT` | `xhigh` | Reasoning effort for report narratives |
-| `OPENAI_EXPERT_EFFORT` | `xhigh` | Reasoning effort for expert analysis and expert web-search context |
+| `OPENAI_MODEL` | `gpt-5.4` | Main model for expert analysis and odds event matching |
+| `OPENAI_LIVE_CONTEXT_MODEL` | `OPENAI_MODEL` | Optional model override for the live web-search context fetch |
+| `OPENAI_COMMENTARY_MODEL` | `gpt-5.4` | Model for halftime and full-time commentary |
+| `OPENAI_REPORT_MODEL` | `gpt-5.4` | Model for weekly and monthly report narratives |
+| `OPENAI_COMMENTARY_EFFORT` | `high` | Reasoning effort for halftime and full-time commentary |
+| `OPENAI_REPORT_EFFORT` | `high` | Reasoning effort for report narratives |
+| `OPENAI_LIVE_CONTEXT_EFFORT` | `high` | Reasoning effort for the live web-search context fetch |
+| `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for the final expert analysis |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
 | `THESPORTSDB_TIMEOUT_MS` | `10000` | Timeout per TheSportsDB league request; set to `0` to disable |
 | `PLANNING_CRON` | `0 2 * * *` | Nightly planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
-| `HOURS_BEFORE_KICKOFF` | `8` | Pre-match posting lead time |
+| `ANALYSIS_HOURS_BEFORE_KICKOFF` | `4` | Lead time for the heavy expert-analysis step; approved picks are sent immediately after analysis |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |
 | `MAX_TIPS_PER_DAY` | `5` | Daily publication cap |
 | `MIN_ACCEPTABLE_ODDS` | `1.50` | Gate 5 minimum odds |
@@ -583,7 +588,7 @@ Every successful OpenAI response also writes an `openai-usage` line into the nor
 
 These are important to understand in production:
 
-- Restart recovery currently restores pre-match jobs from checkpoint, but it does not rebuild already-scheduled halftime or full-time watchers for live matches that were in progress during the restart.
+- Restart recovery currently restores pending analysis jobs from checkpoint, but it does not rebuild already-scheduled halftime or full-time watchers for live matches that were in progress during the restart.
 - Halftime and full-time notifications use polling windows, not event subscriptions, so updates are near-real-time rather than exact-to-the-minute.
 - Commentary quality depends on provider stats plus web-search availability for that specific match.
 - If The Odds API cannot resolve a matching event or market, Gate 5 will block the pick even if the model likes it.

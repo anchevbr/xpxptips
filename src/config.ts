@@ -29,27 +29,36 @@ export const config = {
 
   openai: {
     apiKey: required('OPENAI_API_KEY'),
-    model: optional('OPENAI_MODEL', 'gpt-5.4-mini'),
+    model: optional('OPENAI_MODEL', 'gpt-5.4'),
+    /** Optional override for the live web-search context fetch before expert analysis */
+    liveContextModel: optional('OPENAI_LIVE_CONTEXT_MODEL', optional('OPENAI_MODEL', 'gpt-5.4')),
     /** Model used by halftime/full-time live commentary updates */
-    commentaryModel: optional('OPENAI_COMMENTARY_MODEL', 'gpt-5.4-mini'),
+    commentaryModel: optional('OPENAI_COMMENTARY_MODEL', 'gpt-5.4'),
     /** Model used by weekly/monthly report narratives */
-    reportModel: optional('OPENAI_REPORT_MODEL', 'gpt-5.4-mini'),
+    reportModel: optional('OPENAI_REPORT_MODEL', 'gpt-5.4'),
     /** Reasoning effort for halftime/full-time commentary calls */
-    commentaryEffort: optional('OPENAI_COMMENTARY_EFFORT', 'xhigh') as
+    commentaryEffort: optional('OPENAI_COMMENTARY_EFFORT', 'high') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
     /** Reasoning effort for weekly/monthly report narrative calls */
-    reportEffort: optional('OPENAI_REPORT_EFFORT', 'xhigh') as
+    reportEffort: optional('OPENAI_REPORT_EFFORT', 'high') as
+      | 'minimal'
+      | 'low'
+      | 'medium'
+      | 'high'
+      | 'xhigh',
+    /** Reasoning effort for the live web-search context fetch before expert analysis */
+    liveContextEffort: optional('OPENAI_LIVE_CONTEXT_EFFORT', 'high') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
     /** Reasoning effort for the final expert betting analysis */
-    expertEffort: optional('OPENAI_EXPERT_EFFORT', 'xhigh') as
+    expertEffort: optional('OPENAI_EXPERT_EFFORT', 'high') as
       | 'minimal'
       | 'low'
       | 'medium'
@@ -68,8 +77,8 @@ export const config = {
     /** Cron that runs nightly to plan the next day's fixture posts (default: 2am UTC) */
     planningCron: optional('PLANNING_CRON', '0 2 * * *'),
     timezone: optional('TIMEZONE', 'Europe/Athens'),
-    /** How many hours before a fixture's kickoff to send the analysis (default: 8) */
-    hoursBeforeKickoff: optionalNumber('HOURS_BEFORE_KICKOFF', 8),
+    /** How many hours before kickoff to run analysis and send immediately if approved (default: 4) */
+    analysisHoursBeforeKickoff: optionalNumber('ANALYSIS_HOURS_BEFORE_KICKOFF', 4),
   },
 
   analysis: {

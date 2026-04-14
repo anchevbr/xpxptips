@@ -79,5 +79,6 @@ export async function publishSingleResult(
     logger.error(
       `[publisher] failed to post ${matchData.fixture.id}: ${String(err)}`
     );
+    throw err;
   }
 }

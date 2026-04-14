@@ -7,7 +7,10 @@ import { startScheduler } from './scheduler';
 async function main(): Promise<void> {
   logger.info('── AI Betting Bot starting ──────────────────────────────');
   logger.info(`  Model    : ${config.openai.model}`);
-  logger.info(`  Schedule : ${config.scheduler.planningCron} (${config.scheduler.timezone}), ${config.scheduler.hoursBeforeKickoff}h before kickoff`);
+  logger.info(
+    `  Schedule : ${config.scheduler.planningCron} (${config.scheduler.timezone}), ` +
+    `analyze and send ${config.scheduler.analysisHoursBeforeKickoff}h before kickoff`
+  );
   logger.info(`  Group    : ${config.telegram.groupChatId}`);
   logger.info('─────────────────────────────────────────────────────────');
 

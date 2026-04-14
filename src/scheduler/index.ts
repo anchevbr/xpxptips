@@ -43,11 +43,14 @@ function logFixtureBlockEnd(fixture: Fixture, outcome: string, context?: Fixture
 // ─── Per-fixture job ──────────────────────────────────────────────────────────
 
 /**
- * Analyzes a single fixture and posts to Telegram if the pick is approved.
- * This runs at `kickoff - HOURS_BEFORE_KICKOFF`, giving the most up-to-date
- * live context right before each event.
+ * Runs analysis for a single fixture and sends it immediately if the result
+ * passes all publication gates.
  */
-async function runFixtureJob(fixture: Fixture, date: string, context?: FixtureRunContext): Promise<void> {
+async function runFixtureJob(
+  fixture: Fixture,
+  date: string,
+  context?: FixtureRunContext
+): Promise<void> {
   logFixtureBlockStart(fixture, date, context);
 
   let outcome = 'unknown';
@@ -62,9 +65,7 @@ async function runFixtureJob(fixture: Fixture, date: string, context?: FixtureRu
     const results = await runFullAnalysisPipeline([fixture], date);
 
     if (results.length === 0) {
-      logger.info(
-        `[scheduler] no qualifying pick for ${fixture.homeTeam} vs ${fixture.awayTeam}`
-      );
+      logger.info(`[scheduler] no qualifying pick for ${fixture.homeTeam} vs ${fixture.awayTeam}`);
       outcome = 'no-pick';
       return;
     }
@@ -79,11 +80,40 @@ async function runFixtureJob(fixture: Fixture, date: string, context?: FixtureRu
   }
 }
 
+function scheduleFixtureJob(
+  fixture: Fixture,
+  date: string,
+  now: number,
+  context?: FixtureRunContext,
+  recovery = false,
+): boolean {
+  const analysisLeadMs = config.scheduler.analysisHoursBeforeKickoff * 60 * 60 * 1000;
+  const kickoff = new Date(fixture.date).getTime();
+  const runAt = kickoff - analysisLeadMs;
+  const delayMs = runAt - now;
+  const kickoffAthens = formatAthensDateTimeCompact(fixture.date);
+  const prefix = recovery ? 'recovery: ' : '';
+
+  if (delayMs <= 0) {
+    logger.warn(
+      `[scheduler] ${prefix}${fixture.homeTeam} vs ${fixture.awayTeam}: analysis window already started, running now`
+    );
+    void runFixtureJob(fixture, date, context);
+    return false;
+  }
+
+  logger.info(
+    `[scheduler] ${prefix}${fixture.homeTeam} vs ${fixture.awayTeam}: analyze and send at ${formatAthensDateTimeCompact(new Date(runAt).toISOString())} Athens (kickoff ${kickoffAthens})`
+  );
+  setTimeout(() => void runFixtureJob(fixture, date, context), delayMs);
+  return true;
+}
+
 // ─── Planning job ─────────────────────────────────────────────────────────────
 
 /**
- * Fetches the next day's fixtures and schedules a per-fixture
- * analysis job to fire `HOURS_BEFORE_KICKOFF` hours before each event.
+ * Fetches the next day's fixtures and schedules a single per-fixture analysis
+ * job that sends immediately if approved.
  *
  * @param dateOverride  Override the target date (test mode). Normally tomorrow.
  */
@@ -113,9 +143,8 @@ export async function runPlanningJob(dateOverride?: string): Promise<void> {
     return;
   }
 
-  logger.info(`[scheduler] ${fixtures.length} fixture(s) found — scheduling pre-match jobs`);
+  logger.info(`[scheduler] ${fixtures.length} fixture(s) found — scheduling analysis jobs`);
 
-  const hoursMs = config.scheduler.hoursBeforeKickoff * 60 * 60 * 1000;
   const now = Date.now();
   // In test/override mode, run jobs immediately and awaited (sequential) so
   // the caller can await the full run before process.exit().
@@ -128,72 +157,43 @@ export async function runPlanningJob(dateOverride?: string): Promise<void> {
     return;
   }
 
-  // Production: schedule each fixture job to fire HOURS_BEFORE_KICKOFF before kickoff.
   let scheduled = 0;
-  for (const fixture of fixtures) {
-    const kickoff = new Date(fixture.date).getTime();
-    const postAt = kickoff - hoursMs;
-    const delayMs = postAt - now;
-
-    if (delayMs <= 0) {
-      logger.warn(
-        `[scheduler] ${fixture.homeTeam} vs ${fixture.awayTeam}: post time already passed, running now`
-      );
-      void runFixtureJob(fixture, targetDate);
-    } else {
-      const postTimeAthens = formatAthensDateTimeCompact(new Date(postAt).toISOString());
-      const kickoffAthens = formatAthensDateTimeCompact(fixture.date);
-      logger.info(
-        `[scheduler] ${fixture.homeTeam} vs ${fixture.awayTeam}: post at ${postTimeAthens} Athens (kickoff ${kickoffAthens})`
-      );
-      setTimeout(() => void runFixtureJob(fixture, targetDate), delayMs);
-      scheduled++;
-    }
+  for (const [index, fixture] of fixtures.entries()) {
+    const wasScheduled = scheduleFixtureJob(
+      fixture,
+      targetDate,
+      now,
+      { index: index + 1, total: fixtures.length },
+      false,
+    );
+    if (wasScheduled) scheduled++;
   }
 
-  logger.info(`[scheduler] ${scheduled} pre-match job(s) scheduled`);
+  logger.info(`[scheduler] ${scheduled} analysis job(s) scheduled`);
 }
 
 // ─── Cron registration ────────────────────────────────────────────────────────
 
 /**
- * On startup, check if today's fixtures were already checkpointed (e.g. after a
- * server restart) and reschedule any not-yet-posted pre-match jobs.
+ * On startup, check if today's or tomorrow's fixtures were already checkpointed
+ * and reschedule any pending analysis jobs after a restart.
  */
-function recoverTodayJobs(): void {
-  const today = todayUtc();
-  const fixtures = loadFixtures(today);
+function recoverJobsForDate(date: string): void {
+  const fixtures = loadFixtures(date);
   if (!fixtures || fixtures.length === 0) return;
 
-  const hoursMs = config.scheduler.hoursBeforeKickoff * 60 * 60 * 1000;
   const now = Date.now();
-  let recovered = 0;
+  let scheduled = 0;
 
   for (const fixture of fixtures) {
-    if (alreadyPosted(fixture.id, today)) continue; // already sent before restart
-
-    const kickoff = new Date(fixture.date).getTime();
-    const postAt = kickoff - hoursMs;
-    const delayMs = postAt - now;
-
-    if (delayMs <= 0) {
-      // Post window already started — run immediately
-      logger.warn(
-        `[scheduler] recovery: ${fixture.homeTeam} vs ${fixture.awayTeam} post time passed, running now`
-      );
-      void runFixtureJob(fixture, today);
-    } else {
-      const postTimeAthens = formatAthensDateTimeCompact(new Date(postAt).toISOString());
-      logger.info(
-        `[scheduler] recovery: ${fixture.homeTeam} vs ${fixture.awayTeam} rescheduled for ${postTimeAthens} Athens`
-      );
-      setTimeout(() => void runFixtureJob(fixture, today), delayMs);
-      recovered++;
+    if (alreadyPosted(fixture.id, date)) continue;
+    if (scheduleFixtureJob(fixture, date, now, undefined, true)) {
+      scheduled++;
     }
   }
 
-  if (recovered > 0) {
-    logger.info(`[scheduler] recovery: ${recovered} pre-match job(s) rescheduled from checkpoint`);
+  if (scheduled > 0) {
+    logger.info(`[scheduler] recovery: ${scheduled} analysis job(s) rescheduled for ${date}`);
   }
 }
 
@@ -202,14 +202,21 @@ function recoverTodayJobs(): void {
  * Fires once per day to schedule the next day's per-fixture analysis posts.
  */
 export function startScheduler(): void {
-  const { planningCron, timezone } = config.scheduler;
+  const { planningCron, timezone, analysisHoursBeforeKickoff } = config.scheduler;
 
   if (!cron.validate(planningCron)) {
     throw new Error(`Invalid cron expression: "${planningCron}"`);
   }
 
-  // Recover any pending jobs for today in case of restart
-  recoverTodayJobs();
+  if (analysisHoursBeforeKickoff <= 0) {
+    throw new Error(
+      `Invalid scheduler offset: ANALYSIS_HOURS_BEFORE_KICKOFF (${analysisHoursBeforeKickoff}) must be greater than 0`
+    );
+  }
+
+  // Recover any pending jobs for today and tomorrow in case of restart.
+  recoverJobsForDate(todayUtc());
+  recoverJobsForDate(tomorrowUtc());
 
   cron.schedule(
     planningCron,
@@ -246,8 +253,9 @@ export function startScheduler(): void {
     { timezone }
   );
 
-  logger.info(`[scheduler] planning cron registered — will run: "${planningCron}" (${timezone}), ` +
-    `posting each fixture ${config.scheduler.hoursBeforeKickoff}h before kickoff`
+  logger.info(
+    `[scheduler] planning cron registered — will run: "${planningCron}" (${timezone}), ` +
+    `analyzing and posting each fixture ${analysisHoursBeforeKickoff}h before kickoff`
   );
   logger.info(`[scheduler] report cron registered — every Monday 10:00 ${timezone}`);
   logger.info(`[scheduler] halftime updates: per-fixture setTimeout (no cron)`);

@@ -55,7 +55,8 @@ async function passesPublicationGate(
     const marketExists = await marketAvailable(
       matchData.fixture.id,
       analysis.bestBettingMarket,
-      matchData.fixture
+      matchData.fixture,
+      analysis.finalPick,
     );
     if (!marketExists) {
       return {

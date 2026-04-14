@@ -18,12 +18,12 @@ export function buildExpertAnalysisSchema(isSoccer: boolean) {
       keyFacts: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Confirmed facts that influence the analysis (do not invent)',
+        description: 'Confirmed facts that influence the analysis (do not invent). Prefer high-signal facts in Greek: absences, tactical changes, aggregate context, motivation, coach/team news, and only the most relevant stats/odds.',
       },
       riskFactors: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Risks or uncertainties that could invalidate the pick',
+        description: 'Risks or uncertainties in Greek that could invalidate the pick. Include non-numeric risks when relevant: rotation, morale, tactical uncertainty, coach decisions, game-state management, late team news.',
       },
       bestBettingMarket: {
         type: 'string',
@@ -46,7 +46,7 @@ export function buildExpertAnalysisSchema(isSoccer: boolean) {
       },
       shortReasoning: {
         type: 'string',
-        description: '2–4 sentence concise reasoning for the pick',
+        description: '2–4 sentence compact reasoning in Greek that naturally blends the key numeric and qualitative context into one short betting note',
       },
       dataQualityNote: {
         type: 'string',

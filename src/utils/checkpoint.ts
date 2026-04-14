@@ -15,6 +15,7 @@ import { logger } from './logger';
 import type { Fixture, BettingAnalysis } from '../types';
 
 const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
+const ANALYSIS_CHECKPOINT_VERSION = 4;
 
 function cpDir(date: string, ...sub: string[]): string {
   return path.join(CHECKPOINT_BASE, date, ...sub);
@@ -63,11 +64,23 @@ export function loadFixtures(date: string): Fixture[] | null {
 
 export function saveAnalysis(date: string, fixtureId: string, analysis: BettingAnalysis): void {
   const file = cpDir(date, 'analysis', `${fixtureId}.json`);
-  safeWrite(file, { savedAt: new Date().toISOString(), analysis });
+  safeWrite(file, { version: ANALYSIS_CHECKPOINT_VERSION, savedAt: new Date().toISOString(), analysis });
 }
 
 export function loadAnalysis(date: string, fixtureId: string): BettingAnalysis | null {
   const file = cpDir(date, 'analysis', `${fixtureId}.json`);
-  const data = safeRead<{ analysis: BettingAnalysis }>(file);
-  return data?.analysis ?? null;
+  const data = safeRead<{ version?: number; savedAt?: string; analysis: BettingAnalysis }>(file);
+  if (!data?.analysis) return null;
+  if (data.version !== ANALYSIS_CHECKPOINT_VERSION) {
+    logger.info(
+      `[checkpoint] analysis cache invalid for ${fixtureId} on ${date}` +
+      ` | version=${data.version ?? 'none'} expected=${ANALYSIS_CHECKPOINT_VERSION}`
+    );
+    return null;
+  }
+  logger.info(
+    `[checkpoint] analysis loaded from disk for ${fixtureId} on ${date}` +
+    ` | savedAt=${data.savedAt ?? 'unknown'}`
+  );
+  return data.analysis;
 }

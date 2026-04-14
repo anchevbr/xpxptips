@@ -1,7 +1,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // The Odds API integration
 //
-// Fetches real-time betting odds from 40+ European bookmakers.
+// Fetches real-time betting odds from European bookmakers.
 // Used in Gate 5 to verify markets are available and odds meet minimum threshold.
 //
 // API Docs: https://the-odds-api.com/liveapi/guides/v4/
@@ -20,7 +20,6 @@ function apiKey(): string {
   return process.env['THE_ODDS_API_KEY'] ?? '';
 }
 
-// Map our league names to The Odds API sport keys
 const LEAGUE_SPORT_KEY_MAP: Record<string, string> = {
   'Premier League': 'soccer_epl',
   'La Liga': 'soccer_spain_la_liga',
@@ -33,23 +32,21 @@ const LEAGUE_SPORT_KEY_MAP: Record<string, string> = {
   'EuroLeague': 'basketball_euroleague',
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 export interface OddsOutcome {
-  name: string;           // Team name or "Over"/"Under"
-  price: number;          // Decimal odds (e.g., 1.61, 2.50)
-  point?: number;         // For totals/spreads (e.g., 2.5)
+  name: string;
+  price: number;
+  point?: number;
 }
 
 export interface OddsMarket {
-  key: string;            // 'h2h', 'totals', 'spreads'
+  key: string;
   outcomes: OddsOutcome[];
 }
 
 export interface Bookmaker {
-  key: string;            // 'pinnacle', 'bet365', etc.
-  title: string;          // 'Pinnacle', 'Bet365'
-  lastUpdate: string;     // ISO timestamp
+  key: string;
+  title: string;
+  lastUpdate: string;
   markets: OddsMarket[];
 }
 
@@ -89,6 +86,11 @@ interface ApiEvent {
   commence_time: string;
 }
 
+function samePoint(a?: number, b?: number): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return Math.abs(a - b) < 1e-9;
+}
+
 function normalizeTeamName(name: string): string {
   return name
     .toLowerCase()
@@ -109,36 +111,60 @@ function teamNamesMatch(a: string, b: string): boolean {
   return false;
 }
 
-/**
- * Resolve the caller's team name (from TheSportsDB) to the API's canonical team name
- * stored in eventOdds. Tries fuzzy match first, then token overlap for aliases like
- * "Fenerbahçe Basketbol" ↔ "Fenerbahce SK".
- */
 function resolveH2HOutcomeName(outcomeName: string, eventOdds: EventOdds): string {
   if (teamNamesMatch(outcomeName, eventOdds.homeTeam)) return eventOdds.homeTeam;
   if (teamNamesMatch(outcomeName, eventOdds.awayTeam)) return eventOdds.awayTeam;
 
-  // Token overlap for completely different aliases sharing a key word
   const callerTokens = new Set(
-    normalizeTeamName(outcomeName).split(' ').filter((w) => w.length >= 5)
+    normalizeTeamName(outcomeName).split(' ').filter((word) => word.length >= 5)
   );
+
   if (callerTokens.size > 0) {
-    if (normalizeTeamName(eventOdds.homeTeam).split(' ').some((w) => callerTokens.has(w)))
+    if (normalizeTeamName(eventOdds.homeTeam).split(' ').some((word) => callerTokens.has(word))) {
       return eventOdds.homeTeam;
-    if (normalizeTeamName(eventOdds.awayTeam).split(' ').some((w) => callerTokens.has(w)))
+    }
+    if (normalizeTeamName(eventOdds.awayTeam).split(' ').some((word) => callerTokens.has(word))) {
       return eventOdds.awayTeam;
+    }
   }
 
   return outcomeName;
 }
 
-// ─── Event resolution (FREE /events endpoint) ─────────────────────────────────
+function findOutcome(
+  eventOdds: EventOdds,
+  market: OddsMarket,
+  marketKey: string,
+  outcomeName: string,
+  point?: number,
+): OddsOutcome | undefined {
+  if (marketKey === 'h2h' && outcomeName !== 'Draw') {
+    const apiName = resolveH2HOutcomeName(outcomeName, eventOdds);
+    return market.outcomes.find((outcome) => outcome.name === apiName);
+  }
 
-/**
- * Step 1 of odds fetching — uses the FREE /events endpoint (no quota cost) to find
- * the API's event ID and canonical team names for a fixture.
- * Uses the configured OpenAI model and reasoning effort to match team name variants.
- */
+  return market.outcomes.find(
+    (outcome) =>
+      outcome.name.toLowerCase() === outcomeName.toLowerCase() &&
+      (point === undefined || samePoint(outcome.point, point))
+  );
+}
+
+export function getMostCommonTotalsLine(eventOdds: EventOdds): number | undefined {
+  const counts = new Map<number, number>();
+
+  for (const bookmaker of eventOdds.bookmakers) {
+    const market = bookmaker.markets.find((entry) => entry.key === 'totals');
+    const point = market?.outcomes.find((outcome) => outcome.name === 'Over')?.point ?? market?.outcomes[0]?.point;
+    if (point !== undefined) {
+      counts.set(point, (counts.get(point) ?? 0) + 1);
+    }
+  }
+
+  if (counts.size === 0) return undefined;
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+}
+
 async function resolveEventId(
   sportKey: string,
   homeTeam: string,
@@ -148,13 +174,14 @@ async function resolveEventId(
   const model = config.openai.model;
   const effort = config.openai.expertEffort;
   const url = `${BASE_URL}/sports/${sportKey}/events?apiKey=${key}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!res.ok) return null;
+  const response = await fetch(url, { signal: AbortSignal.timeout(10_000) });
 
-  const events = (await res.json()) as ApiEvent[];
+  if (!response.ok) return null;
+
+  const events = (await response.json()) as ApiEvent[];
   if (events.length === 0) return null;
 
-  const list = events.map((e, i) => `${i}: ${e.home_team} vs ${e.away_team}`).join('\n');
+  const list = events.map((event, index) => `${index}: ${event.home_team} vs ${event.away_team}`).join('\n');
   const prompt =
     `Which event matches this fixture?\nHome: ${homeTeam}\nAway: ${awayTeam}\n\n` +
     `Events:\n${list}\n\nReply with only the integer index, or -1 if none match.`;
@@ -174,26 +201,23 @@ async function resolveEventId(
     });
 
     const raw = ((resp as { output_text?: string }).output_text ?? '').trim();
-    const idx = parseInt(raw, 10);
-    if (!isNaN(idx) && idx >= 0 && idx < events.length) {
+    const index = parseInt(raw, 10);
+
+    if (!Number.isNaN(index) && index >= 0 && index < events.length) {
       logger.info(
-        `[odds-api] matched "${homeTeam} vs ${awayTeam}" → "${events[idx]!.home_team} vs ${events[idx]!.away_team}"`
+        `[odds-api] matched "${homeTeam} vs ${awayTeam}" → "${events[index]!.home_team} vs ${events[index]!.away_team}"`
       );
-      return events[idx]!;
+      return events[index]!;
     }
+
     logger.warn(`[odds-api] no match found for ${homeTeam} vs ${awayTeam} in ${sportKey}`);
-  } catch (err) {
-    logger.warn(`[odds-api] event match failed: ${String(err)}`);
+  } catch (error) {
+    logger.warn(`[odds-api] event match failed: ${String(error)}`);
   }
+
   return null;
 }
 
-// ─── Main exports ─────────────────────────────────────────────────────────────
-
-/**
- * Fetches current odds for a specific fixture.
- * Returns null if no odds are available or API key is missing.
- */
 export async function fetchOddsForFixture(
   homeTeam: string,
   awayTeam: string,
@@ -213,163 +237,138 @@ export async function fetchOddsForFixture(
   }
 
   try {
-    // Step 1 — FREE: resolve event identity via /events (no quota cost)
     const apiEvent = await resolveEventId(sportKey, homeTeam, awayTeam, key);
     if (!apiEvent) {
       logger.warn(`[odds-api] no odds found for ${homeTeam} vs ${awayTeam} in ${league}`);
       return null;
     }
 
-    // Step 2 — fetch h2h + totals for the specific event by ID
     const isSoccer = sportKey.startsWith('soccer_');
     const markets = isSoccer ? 'h2h,totals,btts' : 'h2h,totals';
     const oddsUrl =
       `${BASE_URL}/sports/${sportKey}/events/${apiEvent.id}/odds` +
-      `?apiKey=${key}&regions=eu,uk&markets=${markets}&oddsFormat=decimal`;
+      `?apiKey=${key}&regions=eu&markets=${markets}&oddsFormat=decimal`;
 
-    const res = await fetch(oddsUrl, { signal: AbortSignal.timeout(10_000) });
-    if (!res.ok) {
-      logger.error(`[odds-api] HTTP ${res.status} for event ${apiEvent.id}`);
+    const response = await fetch(oddsUrl, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) {
+      logger.error(`[odds-api] HTTP ${response.status} for event ${apiEvent.id}`);
       return null;
     }
 
-    const remaining = res.headers.get('x-requests-remaining');
-    const last = res.headers.get('x-requests-last');
+    const remaining = response.headers.get('x-requests-remaining');
+    const last = response.headers.get('x-requests-last');
     if (remaining && last) {
       logger.info(`[odds-api] quota: cost ${last}, ${remaining} remaining`);
     }
 
-    const data = (await res.json()) as EventOddsApiResponse;
+    const data = (await response.json()) as EventOddsApiResponse;
 
     return {
       id: data.id,
       sportKey,
       commenceTime: apiEvent.commence_time,
-      homeTeam: apiEvent.home_team,   // API canonical name — used for exact outcome lookup
-      awayTeam: apiEvent.away_team,   // API canonical name — used for exact outcome lookup
-      bookmakers: (data.bookmakers ?? []).map((b) => ({
-        key: b.key,
-        title: b.title,
-        lastUpdate: b.last_update,
-        markets: b.markets,
+      homeTeam: apiEvent.home_team,
+      awayTeam: apiEvent.away_team,
+      bookmakers: (data.bookmakers ?? []).map((bookmaker) => ({
+        key: bookmaker.key,
+        title: bookmaker.title,
+        lastUpdate: bookmaker.last_update,
+        markets: bookmaker.markets,
       })),
     };
-  } catch (err) {
-    logger.error(`[odds-api] fetch failed: ${String(err)}`);
+  } catch (error) {
+    logger.error(`[odds-api] fetch failed: ${String(error)}`);
     return null;
   }
 }
 
-/**
- * Extracts the best available odds for a specific market and outcome.
- * For h2h: outcome is team name or "Draw"
- * For totals: outcome is "Over" or "Under"
- */
 export function getBestOdds(
   eventOdds: EventOdds,
   marketKey: string,
-  outcomeName: string
+  outcomeName: string,
+  point?: number,
 ): number | null {
   let bestPrice = 0;
   let matchCount = 0;
 
   for (const bookmaker of eventOdds.bookmakers) {
-    const market = bookmaker.markets.find((m) => m.key === marketKey);
+    const market = bookmaker.markets.find((entry) => entry.key === marketKey);
     if (!market) continue;
 
-    // For h2h markets: resolve caller's name to the API's canonical team name, then exact match.
-    // resolveH2HOutcomeName maps e.g. "Fenerbahçe Basketbol" → "Fenerbahce SK" via token overlap.
-    let outcome;
-    if (marketKey === 'h2h' && outcomeName !== 'Draw') {
-      const apiName = resolveH2HOutcomeName(outcomeName, eventOdds);
-      outcome = market.outcomes.find((o) => o.name === apiName);
-    } else {
-      outcome = market.outcomes.find(
-        (o) => o.name.toLowerCase() === outcomeName.toLowerCase()
-      );
-    }
+    const outcome = findOutcome(eventOdds, market, marketKey, outcomeName, point);
+    if (!outcome) continue;
 
-    if (outcome && outcome.price > bestPrice) {
+    matchCount++;
+    if (outcome.price > bestPrice) {
       bestPrice = outcome.price;
-      matchCount++;
       if (matchCount <= 3) {
         logger.info(
-          `[odds-api] getBestOdds: ${bookmaker.title} | ${marketKey} | ${outcomeName} → ${outcome.price}`
+          `[odds-api] getBestOdds: ${bookmaker.title} | ${marketKey} | ${outcomeName}${point !== undefined ? ` @ ${point}` : ''} → ${outcome.price}`
         );
       }
     }
   }
 
   if (matchCount > 0) {
-    logger.info(`[odds-api] getBestOdds final: ${marketKey}/${outcomeName} → ${bestPrice} (from ${matchCount} bookmakers)`);
+    logger.info(
+      `[odds-api] getBestOdds final: ${marketKey}/${outcomeName}${point !== undefined ? ` @ ${point}` : ''} → ${bestPrice} (from ${matchCount} bookmakers)`
+    );
   } else {
-    logger.warn(`[odds-api] getBestOdds: NO MATCHES for ${marketKey}/${outcomeName}`);
+    logger.warn(
+      `[odds-api] getBestOdds: NO MATCHES for ${marketKey}/${outcomeName}${point !== undefined ? ` @ ${point}` : ''}`
+    );
   }
 
   return bestPrice > 0 ? bestPrice : null;
 }
 
-/**
- * Gets the average odds across all bookmakers for a specific outcome.
- */
 export function getAverageOdds(
   eventOdds: EventOdds,
   marketKey: string,
-  outcomeName: string
+  outcomeName: string,
+  point?: number,
 ): number | null {
   const prices: number[] = [];
 
   for (const bookmaker of eventOdds.bookmakers) {
-    const market = bookmaker.markets.find((m) => m.key === marketKey);
+    const market = bookmaker.markets.find((entry) => entry.key === marketKey);
     if (!market) continue;
 
-    // For h2h markets: resolve caller's name to the API's canonical team name, then exact match.
-    // resolveH2HOutcomeName maps e.g. "Fenerbahçe Basketbol" → "Fenerbahce SK" via token overlap.
-    let outcome;
-    if (marketKey === 'h2h' && outcomeName !== 'Draw') {
-      const apiName = resolveH2HOutcomeName(outcomeName, eventOdds);
-      outcome = market.outcomes.find((o) => o.name === apiName);
-    } else {
-      outcome = market.outcomes.find(
-        (o) => o.name.toLowerCase() === outcomeName.toLowerCase()
-      );
-    }
-
-    if (outcome) {
-      prices.push(outcome.price);
-    }
+    const outcome = findOutcome(eventOdds, market, marketKey, outcomeName, point);
+    if (outcome) prices.push(outcome.price);
   }
 
   if (prices.length === 0) return null;
-  return prices.reduce((sum, p) => sum + p, 0) / prices.length;
+  return prices.reduce((sum, price) => sum + price, 0) / prices.length;
 }
 
-/**
- * Formats odds summary for display/logging.
- */
 export function formatOddsSummary(eventOdds: EventOdds): string {
   const lines: string[] = [];
   lines.push(`${eventOdds.homeTeam} vs ${eventOdds.awayTeam}`);
+  const isSoccer = eventOdds.sportKey.startsWith('soccer_');
 
-  // H2H market
   const homeOdds = getBestOdds(eventOdds, 'h2h', eventOdds.homeTeam);
-  const drawOdds = getBestOdds(eventOdds, 'h2h', 'Draw');
+  const drawOdds = isSoccer ? getBestOdds(eventOdds, 'h2h', 'Draw') : null;
   const awayOdds = getBestOdds(eventOdds, 'h2h', eventOdds.awayTeam);
 
   if (homeOdds || drawOdds || awayOdds) {
-    lines.push(
-      `H2H: ${eventOdds.homeTeam} ${homeOdds?.toFixed(2) ?? '-'} | Draw ${drawOdds?.toFixed(2) ?? '-'} | ${eventOdds.awayTeam} ${awayOdds?.toFixed(2) ?? '-'}`
-    );
+    if (isSoccer) {
+      lines.push(
+        `H2H: ${eventOdds.homeTeam} ${homeOdds?.toFixed(2) ?? '-'} | Draw ${drawOdds?.toFixed(2) ?? '-'} | ${eventOdds.awayTeam} ${awayOdds?.toFixed(2) ?? '-'}`
+      );
+    } else {
+      lines.push(
+        `H2H: ${eventOdds.homeTeam} ${homeOdds?.toFixed(2) ?? '-'} | ${eventOdds.awayTeam} ${awayOdds?.toFixed(2) ?? '-'}`
+      );
+    }
   }
 
-  // Totals market
-  const overOdds = getBestOdds(eventOdds, 'totals', 'Over');
-  const underOdds = getBestOdds(eventOdds, 'totals', 'Under');
+  const totalsLine = getMostCommonTotalsLine(eventOdds);
+  const overOdds = getBestOdds(eventOdds, 'totals', 'Over', totalsLine);
+  const underOdds = getBestOdds(eventOdds, 'totals', 'Under', totalsLine);
 
   if (overOdds || underOdds) {
-    // Get the line (usually 2.5 for football)
-    const totalsMarket = eventOdds.bookmakers[0]?.markets.find((m) => m.key === 'totals');
-    const line = totalsMarket?.outcomes[0]?.point ?? 2.5;
+    const line = totalsLine ?? 2.5;
     lines.push(`Totals ${line}: Over ${overOdds?.toFixed(2) ?? '-'} | Under ${underOdds?.toFixed(2) ?? '-'}`);
   }
 

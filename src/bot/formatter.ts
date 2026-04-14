@@ -29,9 +29,10 @@ export async function formatTip(
     `🕐 <i>${athensTime}</i>`,
     ``,
     analysis.shortReasoning,
-    ``,
-    `📌 <b>Πρόταση:</b> ${analysis.finalPick}`,
   ];
+
+  lines.push('');
+  lines.push(`📌 <b>Πρόταση:</b> ${analysis.finalPick}`);
 
   // Fetch and display actual odds
   try {
@@ -42,7 +43,7 @@ export async function formatTip(
     const eventOdds = await getFixtureOdds(fixture);
     if (eventOdds) {
       logger.info(`[formatter] got odds data with ${eventOdds.bookmakers.length} bookmakers`);
-      const bestOdds = extractBestOdds(eventOdds, analysis.bestBettingMarket, fixture);
+      const bestOdds = extractBestOdds(eventOdds, analysis.bestBettingMarket, fixture, analysis.finalPick);
       
       if (bestOdds) {
         logger.info(`[formatter] extracted best odds: ${bestOdds.toFixed(2)} for market "${analysis.bestBettingMarket}"`);

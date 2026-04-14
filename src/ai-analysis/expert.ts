@@ -19,21 +19,22 @@ const openai = createOpenAIClient();
  */
 async function fetchLiveContext(fixture: Fixture): Promise<string> {
   const dateStr = fixture.date.substring(0, 10);
-  const model = config.openai.model;
-  const effort = config.openai.expertEffort;
+  const model = config.openai.liveContextModel;
+  const effort = config.openai.liveContextEffort;
   const startedAt = Date.now();
   const query =
-    `Find only the most important pre-match information for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
+    `Find the most important pre-match context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
     `in ${fixture.league} on ${dateStr}. ` +
-    `Prefer official club, league, UEFA/FIFA, or major sports-media sources. ` +
-    `Return a compact scouting note with only these sections: ` +
-    `(1) form from the last 3-5 matches, ` +
-    `(2) key injuries/suspensions, ` +
-    `(3) notable head-to-head results from the last 2 years only if relevant, ` +
-    `(4) current table position, ` +
-    `(5) one short tactical/motivation note, ` +
-    `(6) current odds snapshot if available. ` +
-    `Be concise and avoid duplicate findings.`;
+    `Prefer official club, league, UEFA/FIFA, trusted local reporters, Reuters/AP, ESPN, BBC, Sky, The Athletic, Kicker, Marca, AS, Mundo Deportivo, Bild, L'Equipe or similarly credible sources. ` +
+    `Return one compact scouting note with only these sections and only the most material items: ` +
+    `(1) recent form from the last 3-5 matches, ` +
+    `(2) key absences, suspensions, lineup doubts and likely rotation, ` +
+    `(3) tactical setup and likely match plan, ` +
+    `(4) internal/team context: coach pressure, dressing-room mood, public statements, board/fan pressure, contract or morale issues, dressing-room problems, disciplinary issues, recovery or returnee news — include only if credibly reported, otherwise say none reported, ` +
+    `(5) motivation and match-state context: aggregate score, must-win angle, qualification scenario, fatigue, travel or schedule pressure, ` +
+    `(6) current table position or competition standing if relevant, ` +
+    `(7) current odds snapshot if available. ` +
+    `Do not chase rumours. Do not repeat the same fact. Focus on what materially changes match tempo, risk or motivation.`;
 
   logger.info(
     `[expert] fetching live context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
@@ -171,7 +172,7 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
     return null;
   }
 
-  const result = validateAnalysis(parsed, fixture);
+  const result = validateAnalysis(parsed, matchData);
   if (!result) {
     logger.warn(`[expert] analysis for ${fixture.id} failed validation`);
     return null;
