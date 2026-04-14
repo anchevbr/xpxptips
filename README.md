@@ -190,7 +190,7 @@ When a fixture passes all gates:
 - available odds are fetched and appended when possible,
 - the tip is sent to the configured Telegram group,
 - the dedup store is updated,
-- the pick is persisted to `data/picks-log.json`,
+- the pick is persisted to `data/picks-log.json` together with kickoff time,
 - halftime and full-time watchers are scheduled immediately.
 
 Pre-match tips are not pinned. Weekly and monthly reports are pinned.
@@ -388,6 +388,7 @@ Each record stores:
 
 - fixture identity,
 - date and teams,
+- kickoff time,
 - posted pick and market token,
 - confidence,
 - resolved outcome,
@@ -582,13 +583,13 @@ Every successful OpenAI response also writes an `openai-usage` line into the nor
 - The bot must have permission to pin messages if weekly/monthly reports should pin successfully.
 - Halftime and full-time watchers are scheduled with per-fixture `setTimeout`, not cron.
 - Post-publication live updates are only scheduled for fixtures that were actually published.
+- Restart recovery rebuilds pending halftime and full-time watcher timers for published picks that are still inside their polling windows.
 - There is a `1.5s` pause between pre-match posts to reduce Telegram rate-limit pressure.
 
 ## Current limitations
 
 These are important to understand in production:
 
-- Restart recovery currently restores pending analysis jobs from checkpoint, but it does not rebuild already-scheduled halftime or full-time watchers for live matches that were in progress during the restart.
 - Halftime and full-time notifications use polling windows, not event subscriptions, so updates are near-real-time rather than exact-to-the-minute.
 - Commentary quality depends on provider stats plus web-search availability for that specific match.
 - If The Odds API cannot resolve a matching event or market, Gate 5 will block the pick even if the model likes it.

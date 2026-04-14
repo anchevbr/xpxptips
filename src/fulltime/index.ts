@@ -1,1 +1,1 @@
-export { scheduleFulltimeWatch } from './watcher';
+export { scheduleFulltimeWatch, recoverFulltimeWatch } from './watcher';

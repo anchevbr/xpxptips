@@ -177,6 +177,8 @@ export interface PickRecord {
   awayTeam: string;
   /** ISO datetime when the tip was posted to Telegram */
   postedAt: string;
+  /** ISO kickoff datetime for rebuilding live-update watchers after restart */
+  kickoffAt?: string | null;
   /** Human-readable pick sent to Telegram, e.g. "Άσσος", "Under 2.5" */
   finalPick: string;
   /** Machine token used for outcome resolution, e.g. "h2h/home", "totals/under" */

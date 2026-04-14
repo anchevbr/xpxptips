@@ -9,7 +9,10 @@ import { tomorrowUtc, todayUtc, formatAthensDateTimeCompact } from '../utils/dat
 import { withRetry } from '../utils/retry';
 import { saveFixtures, loadFixtures } from '../utils/checkpoint';
 import { runWeeklyReport, runMonthlyReport, isFirstMondayOfMonth } from '../reports';
-import type { Fixture } from '../types';
+import { getAllPicks, updateKickoffAt } from '../reports/picks-store';
+import { recoverHalftimeWatch } from '../halftime';
+import { recoverFulltimeWatch } from '../fulltime';
+import type { Fixture, PickRecord } from '../types';
 
 type FixtureRunContext = {
   index?: number;
@@ -38,6 +41,77 @@ function logFixtureBlockEnd(fixture: Fixture, outcome: string, context?: Fixture
   logger.info(`[scheduler] ${label} | outcome=${outcome}`);
   logger.info('───────────────────────────────────────────────────────────────');
   logger.info('');
+}
+
+function yesterdayUtc(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+
+function resolvePickKickoffAt(
+  pick: PickRecord,
+  fixturesByDate: Map<string, Fixture[] | null>
+): string | null {
+  if (pick.kickoffAt) {
+    return pick.kickoffAt;
+  }
+
+  let fixtures = fixturesByDate.get(pick.date);
+  if (fixtures === undefined) {
+    fixtures = loadFixtures(pick.date);
+    fixturesByDate.set(pick.date, fixtures);
+  }
+
+  const fixture = fixtures?.find(candidate => candidate.id === pick.fixtureId);
+  if (!fixture) {
+    return null;
+  }
+
+  pick.kickoffAt = fixture.date;
+  updateKickoffAt(pick.fixtureId, fixture.date);
+  return fixture.date;
+}
+
+function recoverPublishedWatchers(): void {
+  const recentDates = new Set([yesterdayUtc(), todayUtc(), tomorrowUtc()]);
+  const fixturesByDate = new Map<string, Fixture[] | null>();
+  const candidatePicks = getAllPicks().filter(
+    pick =>
+      (!pick.halfTimeNotifiedAt || !pick.fullTimeNotifiedAt) &&
+      (pick.kickoffAt || recentDates.has(pick.date))
+  );
+
+  if (candidatePicks.length === 0) {
+    return;
+  }
+
+  let halftimeRecovered = 0;
+  let fulltimeRecovered = 0;
+  let missingKickoff = 0;
+
+  for (const pick of candidatePicks) {
+    const kickoffAt = resolvePickKickoffAt(pick, fixturesByDate);
+    if (!kickoffAt) {
+      missingKickoff++;
+      continue;
+    }
+
+    if (recoverHalftimeWatch(pick)) halftimeRecovered++;
+    if (recoverFulltimeWatch(pick)) fulltimeRecovered++;
+  }
+
+  if (halftimeRecovered > 0 || fulltimeRecovered > 0) {
+    logger.info(
+      `[scheduler] recovery: rescheduled ${halftimeRecovered} halftime watcher(s) and ${fulltimeRecovered} full-time watcher(s)`
+    );
+  }
+
+  if (missingKickoff > 0) {
+    logger.warn(
+      `[scheduler] recovery: skipped ${missingKickoff} published pick(s) with no kickoff time in picks-log or fixture checkpoint)`
+    );
+  }
 }
 
 // ─── Per-fixture job ──────────────────────────────────────────────────────────
@@ -217,6 +291,7 @@ export function startScheduler(): void {
   // Recover any pending jobs for today and tomorrow in case of restart.
   recoverJobsForDate(todayUtc());
   recoverJobsForDate(tomorrowUtc());
+  recoverPublishedWatchers();
 
   cron.schedule(
     planningCron,

@@ -1,1 +1,1 @@
-export { scheduleHalftimeWatch } from './watcher';
+export { scheduleHalftimeWatch, recoverHalftimeWatch } from './watcher';

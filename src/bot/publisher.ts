@@ -28,47 +28,34 @@ export async function publishSingleResult(
 ): Promise<void> {
   const { analysis, matchData } = result;
   const formatted = await formatTip(analysis, matchData.fixture);
+  const postedAt = new Date().toISOString();
+  const savedPick = {
+    fixtureId: matchData.fixture.id,
+    date,
+    league: matchData.fixture.league,
+    homeTeam: matchData.fixture.homeTeam,
+    awayTeam: matchData.fixture.awayTeam,
+    postedAt,
+    kickoffAt: matchData.fixture.date,
+    finalPick: analysis.finalPick,
+    bestBettingMarket: analysis.bestBettingMarket,
+    confidence: analysis.confidence,
+    outcome: null as null,
+    actualScore: null as null,
+    resolvedAt: null as null,
+    halfTimeNotifiedAt: null as null,
+    fullTimeNotifiedAt: null as null,
+  };
 
   try {
     await sendToGroup(formatted.text);
     markPosted(matchData.fixture.id, date, matchData.fixture.competition);
 
     // Persist to picks-log for weekly/monthly reports
-    addPick({
-      fixtureId: matchData.fixture.id,
-      date,
-      league: matchData.fixture.league,
-      homeTeam: matchData.fixture.homeTeam,
-      awayTeam: matchData.fixture.awayTeam,
-      postedAt: new Date().toISOString(),
-      finalPick: analysis.finalPick,
-      bestBettingMarket: analysis.bestBettingMarket,
-      confidence: analysis.confidence,
-      outcome: null,
-      actualScore: null,
-      resolvedAt: null,
-      halfTimeNotifiedAt: null,
-      fullTimeNotifiedAt: null,
-    });
+    addPick(savedPick);
 
     // Schedule a halftime live-stats update for this fixture
-    const kickoffMs = new Date(matchData.fixture.date).getTime();
-    const savedPick = {
-      fixtureId: matchData.fixture.id,
-      date,
-      league: matchData.fixture.league,
-      homeTeam: matchData.fixture.homeTeam,
-      awayTeam: matchData.fixture.awayTeam,
-      postedAt: new Date().toISOString(),
-      finalPick: analysis.finalPick,
-      bestBettingMarket: analysis.bestBettingMarket,
-      confidence: analysis.confidence,
-      outcome: null as null,
-      actualScore: null as null,
-      resolvedAt: null as null,
-      halfTimeNotifiedAt: null as null,
-      fullTimeNotifiedAt: null as null,
-    };
+    const kickoffMs = new Date(savedPick.kickoffAt).getTime();
     scheduleHalftimeWatch(savedPick, kickoffMs);
     scheduleFulltimeWatch(savedPick, kickoffMs);
 

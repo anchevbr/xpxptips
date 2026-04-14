@@ -22,6 +22,7 @@ function buildPickRecord(targetDate: string, fixture: Fixture, analysis: Betting
     homeTeam: fixture.homeTeam,
     awayTeam: fixture.awayTeam,
     postedAt: new Date().toISOString(),
+    kickoffAt: fixture.date,
     finalPick: analysis.finalPick,
     bestBettingMarket: analysis.bestBettingMarket,
     confidence: analysis.confidence,

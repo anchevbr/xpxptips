@@ -16,6 +16,8 @@ import type { PickRecord } from '../types';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes between each poll attempt
 const MAX_ATTEMPTS     = 6;              // up to 60 minutes of polling
+const START_DELAY_MS   = 40 * 60 * 1000;
+const RECOVERY_WINDOW_MS = START_DELAY_MS + (MAX_ATTEMPTS - 1) * POLL_INTERVAL_MS;
 
 /** Picks the most relevant stats to show inline in the Telegram message */
 function keyStats(stats: Array<{ strStat: string; intHome: string; intAway: string }>): string {
@@ -89,19 +91,27 @@ async function attemptHalftimeNotification(pick: PickRecord): Promise<boolean> {
 }
 
 /** Polls until HT is confirmed, giving up after MAX_ATTEMPTS */
-async function pollForHalftime(pick: PickRecord): Promise<void> {
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+async function pollForHalftime(pick: PickRecord, deadlineMs: number): Promise<void> {
+  let attempts = 0;
+
+  while (attempts < MAX_ATTEMPTS && Date.now() <= deadlineMs) {
+    attempts++;
+
     try {
       const done = await attemptHalftimeNotification(pick);
       if (done) return;
     } catch (err) {
-      logger.warn(`[halftime] poll attempt ${attempt} failed for ${pick.fixtureId}: ${String(err)}`);
+      logger.warn(`[halftime] poll attempt ${attempts} failed for ${pick.fixtureId}: ${String(err)}`);
     }
-    if (attempt < MAX_ATTEMPTS) {
-      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+    if (attempts < MAX_ATTEMPTS) {
+      const remainingMs = deadlineMs - Date.now();
+      if (remainingMs <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(POLL_INTERVAL_MS, remainingMs)));
     }
   }
-  logger.warn(`[halftime] gave up waiting for HT on ${pick.homeTeam} vs ${pick.awayTeam} after ${MAX_ATTEMPTS} attempts`);
+
+  logger.warn(`[halftime] gave up waiting for HT on ${pick.homeTeam} vs ${pick.awayTeam} after ${attempts} attempt(s)`);
 }
 
 /**
@@ -113,12 +123,13 @@ async function pollForHalftime(pick: PickRecord): Promise<void> {
  */
 export function scheduleHalftimeWatch(pick: PickRecord, kickoffMs: number): void {
   // Start polling 40 min after kickoff (gives time for first half to reach ~HT)
-  const startDelayMs = kickoffMs + 40 * 60 * 1000 - Date.now();
+  const startDelayMs = kickoffMs + START_DELAY_MS - Date.now();
+  const deadlineMs = kickoffMs + RECOVERY_WINDOW_MS;
 
   if (startDelayMs < 0) {
     // Kickoff already passed (e.g. test mode or late start) — begin immediately
     logger.info(`[halftime] ${pick.homeTeam} vs ${pick.awayTeam}: kickoff already past, starting HT poll now`);
-    void pollForHalftime(pick);
+    void pollForHalftime(pick, deadlineMs);
     return;
   }
 
@@ -126,6 +137,24 @@ export function scheduleHalftimeWatch(pick: PickRecord, kickoffMs: number): void
   logger.info(`[halftime] ${pick.homeTeam} vs ${pick.awayTeam}: HT poll scheduled in ~${startMin} min`);
 
   setTimeout(() => {
-    void pollForHalftime(pick);
+    void pollForHalftime(pick, deadlineMs);
   }, startDelayMs);
+}
+
+export function recoverHalftimeWatch(pick: PickRecord): boolean {
+  if (pick.halfTimeNotifiedAt || !pick.kickoffAt) {
+    return false;
+  }
+
+  const kickoffMs = new Date(pick.kickoffAt).getTime();
+  if (!Number.isFinite(kickoffMs)) {
+    return false;
+  }
+
+  if (Date.now() > kickoffMs + RECOVERY_WINDOW_MS) {
+    return false;
+  }
+
+  scheduleHalftimeWatch(pick, kickoffMs);
+  return true;
 }

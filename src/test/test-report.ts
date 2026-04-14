@@ -145,7 +145,7 @@ function seedPicksFromCheckpoints(targetDate: string): void {
     return;
   }
   const { fixtures } = JSON.parse(fs.readFileSync(fixturesFile, 'utf-8')) as {
-    fixtures: Array<{ id: string; league: string; homeTeam: string; awayTeam: string }>;
+    fixtures: Array<{ id: string; league: string; homeTeam: string; awayTeam: string; date: string }>;
   };
   const fixtureMap = Object.fromEntries(fixtures.map(f => [f.id, f]));
   const existingIds = new Set(getAllPicks().map(p => p.fixtureId));
@@ -179,6 +179,7 @@ function seedPicksFromCheckpoints(targetDate: string): void {
       homeTeam: fixture.homeTeam,
       awayTeam: fixture.awayTeam,
       postedAt: new Date(`${targetDate}T08:00:00Z`).toISOString(),
+      kickoffAt: fixture.date,
       finalPick: analysis.finalPick,
       bestBettingMarket: analysis.bestBettingMarket,
       confidence: analysis.confidence,

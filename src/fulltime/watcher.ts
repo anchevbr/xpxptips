@@ -22,6 +22,8 @@ import type { PickRecord } from '../types';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes between polls
 const MAX_ATTEMPTS     = 12;             // up to 120 minutes of polling after start delay
+const START_DELAY_MS   = 85 * 60 * 1000;
+const RECOVERY_WINDOW_MS = START_DELAY_MS + (MAX_ATTEMPTS - 1) * POLL_INTERVAL_MS;
 
 /** Stats shown inline in the FT Telegram message */
 function keyStats(stats: Array<{ strStat: string; intHome: string; intAway: string }>): string {
@@ -123,20 +125,28 @@ async function attemptFulltimeNotification(pick: PickRecord): Promise<boolean> {
 }
 
 /** Polls until FT is confirmed, giving up after MAX_ATTEMPTS */
-async function pollForFulltime(pick: PickRecord): Promise<void> {
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+async function pollForFulltime(pick: PickRecord, deadlineMs: number): Promise<void> {
+  let attempts = 0;
+
+  while (attempts < MAX_ATTEMPTS && Date.now() <= deadlineMs) {
+    attempts++;
+
     try {
       const done = await attemptFulltimeNotification(pick);
       if (done) return;
     } catch (err) {
-      logger.warn(`[fulltime] poll attempt ${attempt} failed for ${pick.fixtureId}: ${String(err)}`);
+      logger.warn(`[fulltime] poll attempt ${attempts} failed for ${pick.fixtureId}: ${String(err)}`);
     }
-    if (attempt < MAX_ATTEMPTS) {
-      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+
+    if (attempts < MAX_ATTEMPTS) {
+      const remainingMs = deadlineMs - Date.now();
+      if (remainingMs <= 0) break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(POLL_INTERVAL_MS, remainingMs)));
     }
   }
+
   logger.warn(
-    `[fulltime] gave up waiting for FT on ${pick.homeTeam} vs ${pick.awayTeam} after ${MAX_ATTEMPTS} attempts`
+    `[fulltime] gave up waiting for FT on ${pick.homeTeam} vs ${pick.awayTeam} after ${attempts} attempt(s)`
   );
 }
 
@@ -149,11 +159,12 @@ async function pollForFulltime(pick: PickRecord): Promise<void> {
  */
 export function scheduleFulltimeWatch(pick: PickRecord, kickoffMs: number): void {
   // Start polling 85 min after kickoff (covers standard 90-min matches)
-  const startDelayMs = kickoffMs + 85 * 60 * 1000 - Date.now();
+  const startDelayMs = kickoffMs + START_DELAY_MS - Date.now();
+  const deadlineMs = kickoffMs + RECOVERY_WINDOW_MS;
 
   if (startDelayMs < 0) {
     logger.info(`[fulltime] ${pick.homeTeam} vs ${pick.awayTeam}: kickoff already past, starting FT poll now`);
-    void pollForFulltime(pick);
+    void pollForFulltime(pick, deadlineMs);
     return;
   }
 
@@ -161,6 +172,24 @@ export function scheduleFulltimeWatch(pick: PickRecord, kickoffMs: number): void
   logger.info(`[fulltime] ${pick.homeTeam} vs ${pick.awayTeam}: FT poll scheduled in ~${startMin} min`);
 
   setTimeout(() => {
-    void pollForFulltime(pick);
+    void pollForFulltime(pick, deadlineMs);
   }, startDelayMs);
+}
+
+export function recoverFulltimeWatch(pick: PickRecord): boolean {
+  if (pick.fullTimeNotifiedAt || !pick.kickoffAt) {
+    return false;
+  }
+
+  const kickoffMs = new Date(pick.kickoffAt).getTime();
+  if (!Number.isFinite(kickoffMs)) {
+    return false;
+  }
+
+  if (Date.now() > kickoffMs + RECOVERY_WINDOW_MS) {
+    return false;
+  }
+
+  scheduleFulltimeWatch(pick, kickoffMs);
+  return true;
 }

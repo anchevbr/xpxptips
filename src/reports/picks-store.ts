@@ -50,6 +50,20 @@ export function addPick(record: PickRecord): void {
   logger.info(`[picks-store] saved pick: ${record.homeTeam} vs ${record.awayTeam} (${record.finalPick})`);
 }
 
+export function updateKickoffAt(fixtureId: string, kickoffAt: string): void {
+  const picks = readPicks();
+  const idx = picks.findIndex(p => p.fixtureId === fixtureId);
+  if (idx < 0) {
+    logger.warn(`[picks-store] cannot update kickoff time — not found: ${fixtureId}`);
+    return;
+  }
+  if (picks[idx]!.kickoffAt === kickoffAt) {
+    return;
+  }
+  picks[idx]!.kickoffAt = kickoffAt;
+  writePicks(picks);
+}
+
 /**
  * Updates the outcome of a previously saved pick after the match is played.
  */
