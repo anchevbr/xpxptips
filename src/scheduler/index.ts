@@ -19,6 +19,8 @@ type FixtureRunContext = {
   total?: number;
 };
 
+type ScheduleFixtureResult = 'scheduled' | 'started-immediately';
+
 function fixtureRunLabel(fixture: Fixture, context?: FixtureRunContext): string {
   const ordinal =
     typeof context?.index === 'number' && typeof context?.total === 'number'
@@ -160,7 +162,7 @@ function scheduleFixtureJob(
   now: number,
   context?: FixtureRunContext,
   recovery = false,
-): boolean {
+): ScheduleFixtureResult {
   const analysisLeadMs = config.scheduler.analysisHoursBeforeKickoff * 60 * 60 * 1000;
   const kickoff = new Date(fixture.date).getTime();
   const runAt = kickoff - analysisLeadMs;
@@ -173,14 +175,14 @@ function scheduleFixtureJob(
       `[scheduler] ${prefix}${fixture.homeTeam} vs ${fixture.awayTeam}: analysis window already started, running now`
     );
     void runFixtureJob(fixture, date, context);
-    return false;
+    return 'started-immediately';
   }
 
   logger.info(
     `[scheduler] ${prefix}${fixture.homeTeam} vs ${fixture.awayTeam}: analyze and send at ${formatAthensDateTimeCompact(new Date(runAt).toISOString())} Athens (kickoff ${kickoffAthens})`
   );
   setTimeout(() => void runFixtureJob(fixture, date, context), delayMs);
-  return true;
+  return 'scheduled';
 }
 
 // ─── Planning job ─────────────────────────────────────────────────────────────
@@ -232,18 +234,25 @@ export async function runPlanningJob(dateOverride?: string): Promise<void> {
   }
 
   let scheduled = 0;
+  let startedImmediately = 0;
   for (const [index, fixture] of fixtures.entries()) {
-    const wasScheduled = scheduleFixtureJob(
+    const scheduleResult = scheduleFixtureJob(
       fixture,
       targetDate,
       now,
       { index: index + 1, total: fixtures.length },
       false,
     );
-    if (wasScheduled) scheduled++;
+    if (scheduleResult === 'scheduled') {
+      scheduled++;
+    } else {
+      startedImmediately++;
+    }
   }
 
-  logger.info(`[scheduler] ${scheduled} analysis job(s) scheduled`);
+  logger.info(
+    `[scheduler] ${scheduled} analysis job(s) scheduled, ${startedImmediately} started immediately`
+  );
 }
 
 // ─── Cron registration ────────────────────────────────────────────────────────
@@ -258,16 +267,23 @@ function recoverJobsForDate(date: string): void {
 
   const now = Date.now();
   let scheduled = 0;
+  let startedImmediately = 0;
 
   for (const fixture of fixtures) {
     if (alreadyPosted(fixture.id, date)) continue;
-    if (scheduleFixtureJob(fixture, date, now, undefined, true)) {
+    const scheduleResult = scheduleFixtureJob(fixture, date, now, undefined, true);
+    if (scheduleResult === 'scheduled') {
       scheduled++;
+    } else {
+      startedImmediately++;
     }
   }
 
-  if (scheduled > 0) {
-    logger.info(`[scheduler] recovery: ${scheduled} analysis job(s) rescheduled for ${date}`);
+  if (scheduled > 0 || startedImmediately > 0) {
+    logger.info(
+      `[scheduler] recovery: ${scheduled} analysis job(s) rescheduled for ${date}, ` +
+      `${startedImmediately} started immediately`
+    );
   }
 }
 
