@@ -179,6 +179,10 @@ export interface PickRecord {
   postedAt: string;
   /** ISO kickoff datetime for rebuilding live-update watchers after restart */
   kickoffAt?: string | null;
+  /** Short pre-match reasoning shown in the original tip message */
+  preMatchReasoning?: string | null;
+  /** Telegram message id of the original tip post */
+  tipMessageId?: number | null;
   /** Human-readable pick sent to Telegram, e.g. "Άσσος", "Under 2.5" */
   finalPick: string;
   /** Machine token used for outcome resolution, e.g. "h2h/home", "totals/under" */
@@ -191,6 +195,10 @@ export interface PickRecord {
   resolvedAt: string | null;
   /** ISO datetime when the halftime update was sent to Telegram — null if not yet sent */
   halfTimeNotifiedAt: string | null;
+  /** Telegram message id of the halftime update */
+  halfTimeMessageId?: number | null;
   /** ISO datetime when the full-time update was sent to Telegram — null if not yet sent */
   fullTimeNotifiedAt: string | null;
+  /** Telegram message id of the full-time update */
+  fullTimeMessageId?: number | null;
 }

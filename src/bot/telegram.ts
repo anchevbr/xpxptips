@@ -12,6 +12,10 @@ import { logger } from '../utils/logger';
 
 let bot: Telegraf | null = null;
 
+type SendToGroupOptions = {
+  replyToMessageId?: number;
+};
+
 export function createBot(): Telegraf {
   if (bot) return bot;
 
@@ -33,13 +37,24 @@ export function createBot(): Telegraf {
  * Sends a message to the configured group chat.
  * Uses HTML parse mode to render formatting.
  */
-export async function sendToGroup(text: string): Promise<void> {
+export async function sendToGroup(text: string, options: SendToGroupOptions = {}): Promise<number> {
   const b = createBot();
   try {
-    await b.telegram.sendMessage(config.telegram.groupChatId, text, {
+    const sendOptions: Parameters<typeof b.telegram.sendMessage>[2] & {
+      reply_to_message_id?: number;
+      allow_sending_without_reply?: boolean;
+    } = {
       parse_mode: 'HTML',
       link_preview_options: { is_disabled: true },
-    });
+    };
+
+    if (options.replyToMessageId) {
+      sendOptions.reply_to_message_id = options.replyToMessageId;
+      sendOptions.allow_sending_without_reply = true;
+    }
+
+    const msg = await b.telegram.sendMessage(config.telegram.groupChatId, text, sendOptions);
+    return msg.message_id;
   } catch (err) {
     logger.error(`[telegram] sendToGroup failed: ${String(err)}`);
     throw err;

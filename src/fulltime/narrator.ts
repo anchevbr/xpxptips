@@ -10,6 +10,7 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { createOpenAIClient } from '../utils/openai-client';
 import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
+import { sanitizeCommentaryText } from '../utils/commentary';
 import type { PickRecord } from '../types';
 import type { EventStat, LineupPlayer } from '../halftime/stats-fetcher';
 
@@ -51,6 +52,7 @@ export async function generateFulltimeNarrative(
   const model = config.openai.commentaryModel;
   const scoreStr =
     homeScore !== null && awayScore !== null ? `${homeScore}–${awayScore}` : 'Άγνωστο';
+  const preMatchReasoning = pick.preMatchReasoning?.trim() || 'Δεν διασώθηκε η αρχική prematch λογική μας.';
 
   const statsBlock = formatStatsBlock(stats);
   const lineupBlock = formatLineupBlock(lineup, pick.homeTeam, pick.awayTeam);
@@ -59,15 +61,14 @@ export async function generateFulltimeNarrative(
 
   const outcomeInstruction =
     outcome === 'win'
-      ? `Η πρόταση ΚΕΡΔΙΣΕ! Γράψε χαρούμενο, ενθουσιώδες κείμενο. ` +
-        `Εξήγησε γιατί κέρδισε, τι πήγε καλά. Ανέφερε έναν-δύο παίκτες που ξεχώρισαν στο ματς. ` +
-        `Κλείσε με κάτι σαν "Συγχαρητήρια σε όσους ήταν μαζί μας!" ή παρόμοιο.`
+      ? `Η πρόταση ΚΕΡΔΙΣΕ. Γράψε 2–3 σύντομες προτάσεις με θετική ενέργεια. ` +
+        `Σύνδεσε ρητά την αρχική prematch ιδέα με ό,τι επιβεβαιώθηκε στο γήπεδο. ` +
+        `Ανέφερε έναν-δύο παίκτες ή κομβικά στατιστικά που δικαίωσαν το διάβασμά μας.`
       : outcome === 'loss'
-      ? `Η πρόταση ΕΧΑΣΕ. Γράψε ειλικρινές, αναλυτικό κείμενο. ` +
-        `Εξήγησε γιατί χάθηκε: ποια στατιστικά ή γεγονότα δεν πήγαν όπως ανέμεναμε. ` +
-        `Ανέφερε έναν-δύο παίκτες ή στιγμές του ματς που επηρέασαν το αποτέλεσμα. ` +
-        `Χωρίς δραματισμό — αντικειμενικό post-mortem. Κλείσε με κάτι συνοπτικό όπως "Τα πράγματα δεν πήγαν όπως αναλύσαμε και συνεχίζουμε." `
-      : /* push */ `Η πρόταση επέστρεψε (push — ακριβώς στο όριο). Εξήγησε τι έγινε και γιατί.`;
+      ? `Η πρόταση ΕΧΑΣΕ. Γράψε 2–3 σύντομες προτάσεις. ` +
+        `Ξεκίνα από το τι περιμέναμε pre-match και πες καθαρά ποιο κομμάτι δεν βγήκε. ` +
+        `Μόνο γιατί χάθηκε και τέλος. ΜΗΝ γράψεις τίποτα για το πώς ίσως μπορούσε να εξελιχθεί αλλιώς το ματς.`
+      : `Η πρόταση επέστρεψε (push). Γράψε 2–3 σύντομες προτάσεις που εξηγούν τι περιμέναμε και γιατί τελικά το ματς έκλεισε ακριβώς στο όριο.`;
 
   const prompt =
     `Είσαι αθλητικός αναλυτής για κανάλι στοιχημάτων στο Telegram. ` +
@@ -82,11 +83,12 @@ export async function generateFulltimeNarrative(
     `Πρόταση: "${pick.finalPick}" (market: ${pick.bestBettingMarket})\n` +
     `Τελικό σκορ: ${scoreStr}\n` +
     `Αποτέλεσμα πρότασης: ${outcome === 'win' ? '✅ ΚΕΡΔΙΣΕ' : outcome === 'loss' ? '❌ ΕΧΑΣΕ' : '↩️ PUSH'}\n\n` +
+    `🧠 ΑΡΧΙΚΗ PRE-MATCH ΛΟΓΙΚΗ:\n${preMatchReasoning}\n\n` +
     `📊 ΣΤΑΤΙΣΤΙΚΑ ΑΓΩΝΑ:\n${statsBlock}\n\n` +
     (lineupBlock ? `👥 ΕΝΔΕΚΑΔΕΣ:\n${lineupBlock}\n\n` : '') +
     `📝 ΟΔΗΓΙΕΣ:\n` +
     `Γράψε ακριβώς 3–4 προτάσεις στα ελληνικά. ${outcomeInstruction}\n` +
-    `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links ή παραπομπές σε πηγές.`;
+    `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links, domains ή παραπομπές σε πηγές.`;
 
   try {
     const resp = await runResponseWithActivityLogging({
@@ -110,7 +112,7 @@ export async function generateFulltimeNarrative(
     });
 
     const raw = extractResponseOutputText(resp);
-    const text = raw.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
+    const text = sanitizeCommentaryText(raw);
     return text || 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος.';
   } catch (err) {
     logger.warn(`[fulltime-narrator] GPT call failed: ${String(err)}`);

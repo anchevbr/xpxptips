@@ -9,7 +9,7 @@
 
 import { logger } from '../utils/logger';
 import { sendToGroup } from '../bot/telegram';
-import { updateFulltimeNotified, updateOutcome } from '../reports/picks-store';
+import { getPickByFixtureId, updateFulltimeNotified, updateOutcome } from '../reports/picks-store';
 import {
   fetchLiveStatus,
   fetchEventStats,
@@ -48,9 +48,9 @@ function keyStats(stats: Array<{ strStat: string; intHome: string; intAway: stri
 }
 
 function outcomeEmoji(outcome: 'win' | 'loss' | 'push'): string {
-  if (outcome === 'win')  return '✅';
-  if (outcome === 'loss') return '❌';
-  return '↩️';
+  if (outcome === 'win') return '✅💸🔥';
+  if (outcome === 'loss') return '🚨💔❌';
+  return '↩️⚖️';
 }
 
 /** Formats the Telegram full-time update message (HTML) */
@@ -69,13 +69,19 @@ function formatFulltimeMessage(
 
   const statsLine = keyStats(stats);
   const emoji     = outcomeEmoji(outcome);
+  const header =
+    outcome === 'win'
+      ? '✅💸 <b>Τελικό Ταμείο</b>'
+      : outcome === 'loss'
+      ? '🚨💔 <b>Χαμένο Tip</b>'
+      : '↩️ <b>Επιστροφή Πονταρίσματος</b>';
   const resultLabel =
-    outcome === 'win'  ? 'ΒΓΗΚΕ ΤΟ ΤΙΡ' :
-    outcome === 'loss' ? 'ΔΕΝ ΒΓΗΚΕ ΤΟ ΤΙΡ' :
-                         'PUSH — ΕΠΙΣΤΡΟΦΗ';
+    outcome === 'win' ? 'ΤΟ TIP ΠΛΗΡΩΣΕ' :
+    outcome === 'loss' ? 'ΤΟ TIP ΧΑΘΗΚΕ' :
+    'PUSH — ΕΠΙΣΤΡΟΦΗ';
 
   return (
-    `🏁 <b>Τελικό Αποτέλεσμα</b>\n\n` +
+    `${header}\n\n` +
     `🏟️ <b>${pick.homeTeam} vs ${pick.awayTeam}</b>\n` +
     `🏆 ${pick.league}\n` +
     `⚽ Τελικό σκορ: <b>${scoreDisplay}</b>\n` +
@@ -88,39 +94,41 @@ function formatFulltimeMessage(
 
 /** Attempts one FT check; returns true if FT was detected and notification sent */
 async function attemptFulltimeNotification(pick: PickRecord): Promise<boolean> {
-  const live = await fetchLiveStatus(pick.fixtureId);
+  const currentPick = getPickByFixtureId(pick.fixtureId) ?? pick;
+  const live = await fetchLiveStatus(currentPick.fixtureId);
   if (!live) return false;
 
   if (!isFullTime(live.status)) {
-    logger.info(`[fulltime] ${pick.homeTeam} vs ${pick.awayTeam} — status: "${live.status}" (not FT yet)`);
+    logger.info(`[fulltime] ${currentPick.homeTeam} vs ${currentPick.awayTeam} — status: "${live.status}" (not FT yet)`);
     return false;
   }
 
   const { homeScore, awayScore } = live;
   const outcome =
     homeScore !== null && awayScore !== null
-      ? determineOutcome(pick.bestBettingMarket, pick.finalPick, homeScore, awayScore)
+      ? determineOutcome(currentPick.bestBettingMarket, currentPick.finalPick, homeScore, awayScore)
       : 'loss';
 
   logger.info(
-    `[fulltime] 🔔 FT detected: ${pick.homeTeam} vs ${pick.awayTeam} ` +
+    `[fulltime] 🔔 FT detected: ${currentPick.homeTeam} vs ${currentPick.awayTeam} ` +
     `(${homeScore ?? '?'}–${awayScore ?? '?'}) → ${outcome}`
   );
 
-  const stats   = await fetchEventStats(pick.fixtureId);
-  const lineup  = await fetchEventLineup(pick.fixtureId);
-  const narrative = await generateFulltimeNarrative(pick, homeScore, awayScore, outcome, stats, lineup);
-  const message   = formatFulltimeMessage(pick, homeScore, awayScore, outcome, stats, narrative);
-
-  await sendToGroup(message);
+  const stats = await fetchEventStats(currentPick.fixtureId);
+  const lineup = await fetchEventLineup(currentPick.fixtureId);
+  const narrative = await generateFulltimeNarrative(currentPick, homeScore, awayScore, outcome, stats, lineup);
+  const message = formatFulltimeMessage(currentPick, homeScore, awayScore, outcome, stats, narrative);
+  const fullTimeMessageId = await sendToGroup(message, {
+    replyToMessageId: currentPick.halfTimeMessageId ?? currentPick.tipMessageId ?? undefined,
+  });
 
   // Persist outcome to picks-log
   const scoreStr =
     homeScore !== null && awayScore !== null ? `${homeScore}-${awayScore}` : '?-?';
-  updateOutcome(pick.fixtureId, outcome === 'push' ? 'void' : outcome, scoreStr);
-  updateFulltimeNotified(pick.fixtureId);
+  updateOutcome(currentPick.fixtureId, outcome === 'push' ? 'void' : outcome, scoreStr);
+  updateFulltimeNotified(currentPick.fixtureId, fullTimeMessageId);
 
-  logger.info(`[fulltime] update sent for ${pick.homeTeam} vs ${pick.awayTeam} (${outcome})`);
+  logger.info(`[fulltime] update sent for ${currentPick.homeTeam} vs ${currentPick.awayTeam} (${outcome})`);
   return true;
 }
 

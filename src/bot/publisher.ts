@@ -29,27 +29,32 @@ export async function publishSingleResult(
   const { analysis, matchData } = result;
   const formatted = await formatTip(analysis, matchData.fixture);
   const postedAt = new Date().toISOString();
-  const savedPick = {
-    fixtureId: matchData.fixture.id,
-    date,
-    league: matchData.fixture.league,
-    homeTeam: matchData.fixture.homeTeam,
-    awayTeam: matchData.fixture.awayTeam,
-    postedAt,
-    kickoffAt: matchData.fixture.date,
-    finalPick: analysis.finalPick,
-    bestBettingMarket: analysis.bestBettingMarket,
-    confidence: analysis.confidence,
-    outcome: null as null,
-    actualScore: null as null,
-    resolvedAt: null as null,
-    halfTimeNotifiedAt: null as null,
-    fullTimeNotifiedAt: null as null,
-  };
 
   try {
-    await sendToGroup(formatted.text);
+    const tipMessageId = await sendToGroup(formatted.text);
     markPosted(matchData.fixture.id, date, matchData.fixture.competition);
+
+    const savedPick = {
+      fixtureId: matchData.fixture.id,
+      date,
+      league: matchData.fixture.league,
+      homeTeam: matchData.fixture.homeTeam,
+      awayTeam: matchData.fixture.awayTeam,
+      postedAt,
+      kickoffAt: matchData.fixture.date,
+      preMatchReasoning: analysis.shortReasoning,
+      tipMessageId,
+      finalPick: analysis.finalPick,
+      bestBettingMarket: analysis.bestBettingMarket,
+      confidence: analysis.confidence,
+      outcome: null as null,
+      actualScore: null as null,
+      resolvedAt: null as null,
+      halfTimeNotifiedAt: null as null,
+      halfTimeMessageId: null as null,
+      fullTimeNotifiedAt: null as null,
+      fullTimeMessageId: null as null,
+    };
 
     // Persist to picks-log for weekly/monthly reports
     addPick(savedPick);

@@ -23,6 +23,8 @@ function buildPickRecord(targetDate: string, fixture: Fixture, analysis: Betting
     awayTeam: fixture.awayTeam,
     postedAt: new Date().toISOString(),
     kickoffAt: fixture.date,
+    preMatchReasoning: analysis.shortReasoning,
+    tipMessageId: null,
     finalPick: analysis.finalPick,
     bestBettingMarket: analysis.bestBettingMarket,
     confidence: analysis.confidence,
@@ -30,7 +32,9 @@ function buildPickRecord(targetDate: string, fixture: Fixture, analysis: Betting
     actualScore: null,
     resolvedAt: null,
     halfTimeNotifiedAt: null,
+    halfTimeMessageId: null,
     fullTimeNotifiedAt: null,
+    fullTimeMessageId: null,
   };
 }
 

@@ -50,6 +50,10 @@ export function addPick(record: PickRecord): void {
   logger.info(`[picks-store] saved pick: ${record.homeTeam} vs ${record.awayTeam} (${record.finalPick})`);
 }
 
+export function getPickByFixtureId(fixtureId: string): PickRecord | null {
+  return readPicks().find(p => p.fixtureId === fixtureId) ?? null;
+}
+
 export function updateKickoffAt(fixtureId: string, kickoffAt: string): void {
   const picks = readPicks();
   const idx = picks.findIndex(p => p.fixtureId === fixtureId);
@@ -87,7 +91,7 @@ export function updateOutcome(
 /**
  * Marks a pick as having received its halftime Telegram update.
  */
-export function updateHalftimeNotified(fixtureId: string): void {
+export function updateHalftimeNotified(fixtureId: string, halfTimeMessageId?: number): void {
   const picks = readPicks();
   const idx = picks.findIndex(p => p.fixtureId === fixtureId);
   if (idx < 0) {
@@ -95,13 +99,16 @@ export function updateHalftimeNotified(fixtureId: string): void {
     return;
   }
   picks[idx]!.halfTimeNotifiedAt = new Date().toISOString();
+  if (typeof halfTimeMessageId === 'number') {
+    picks[idx]!.halfTimeMessageId = halfTimeMessageId;
+  }
   writePicks(picks);
 }
 
 /**
  * Marks a pick as having received its full-time Telegram update.
  */
-export function updateFulltimeNotified(fixtureId: string): void {
+export function updateFulltimeNotified(fixtureId: string, fullTimeMessageId?: number): void {
   const picks = readPicks();
   const idx = picks.findIndex(p => p.fixtureId === fixtureId);
   if (idx < 0) {
@@ -109,6 +116,9 @@ export function updateFulltimeNotified(fixtureId: string): void {
     return;
   }
   picks[idx]!.fullTimeNotifiedAt = new Date().toISOString();
+  if (typeof fullTimeMessageId === 'number') {
+    picks[idx]!.fullTimeMessageId = fullTimeMessageId;
+  }
   writePicks(picks);
 }
 

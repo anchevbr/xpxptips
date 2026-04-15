@@ -9,9 +9,10 @@
 
 import { logger } from '../utils/logger';
 import { sendToGroup } from '../bot/telegram';
-import { updateHalftimeNotified } from '../reports/picks-store';
+import { getPickByFixtureId, updateHalftimeNotified } from '../reports/picks-store';
 import { fetchLiveStatus, fetchEventStats, fetchEventLineup, isHalftime } from './stats-fetcher';
 import { generateHalftimeNarrative } from './narrator';
+import { assessHalftimeTipState, halftimeStatusLabel } from './tip-state';
 import type { PickRecord } from '../types';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes between each poll attempt
@@ -51,13 +52,23 @@ function formatHalftimeMessage(
       : '?–?';
 
   const statsLine = keyStats(stats);
+  const halftimeState = assessHalftimeTipState(pick, homeScore, awayScore);
+  const header =
+    halftimeState === 'lost'
+      ? '🚨💔 <b>Χάθηκε Από Το Ημίχρονο</b>'
+      : halftimeState === 'won'
+      ? '✅🔥 <b>Κλείδωσε Από Το Ημίχρονο</b>'
+      : halftimeState === 'on-track'
+      ? '🟢📈 <b>Ενημέρωση Ημιχρόνου</b>'
+      : '🟠⏱️ <b>Ενημέρωση Ημιχρόνου</b>';
 
   return (
-    `⏱️ <b>Ενημέρωση Ημιχρόνου</b>\n\n` +
+    `${header}\n\n` +
     `🏟️ <b>${pick.homeTeam} vs ${pick.awayTeam}</b>\n` +
     `🏆 ${pick.league}\n` +
     `⚽ Σκορ: <b>${scoreDisplay}</b> (HT)\n` +
     `🎯 Πρόταση: <b>${pick.finalPick}</b>\n\n` +
+    `📍 Κατάσταση: <b>${halftimeStatusLabel(halftimeState)}</b>\n\n` +
     `<i>${narrative}</i>\n` +
     (statsLine ? `\n📊 ${statsLine}` : '')
   );
@@ -65,28 +76,31 @@ function formatHalftimeMessage(
 
 /** Attempts one HT check; returns true if HT was detected and notification sent */
 async function attemptHalftimeNotification(pick: PickRecord): Promise<boolean> {
-  const live = await fetchLiveStatus(pick.fixtureId);
+  const currentPick = getPickByFixtureId(pick.fixtureId) ?? pick;
+  const live = await fetchLiveStatus(currentPick.fixtureId);
   if (!live) return false;
 
   if (!isHalftime(live.status)) {
-    logger.info(`[halftime] ${pick.homeTeam} vs ${pick.awayTeam} — status: "${live.status}" (not HT yet)`);
+    logger.info(`[halftime] ${currentPick.homeTeam} vs ${currentPick.awayTeam} — status: "${live.status}" (not HT yet)`);
     return false;
   }
 
   logger.info(
-    `[halftime] 🔔 HT detected: ${pick.homeTeam} vs ${pick.awayTeam} ` +
+    `[halftime] 🔔 HT detected: ${currentPick.homeTeam} vs ${currentPick.awayTeam} ` +
     `(${live.homeScore ?? '?'}–${live.awayScore ?? '?'})`
   );
 
-  const stats = await fetchEventStats(pick.fixtureId);
-  const lineup = await fetchEventLineup(pick.fixtureId);
-  const narrative = await generateHalftimeNarrative(pick, live.homeScore, live.awayScore, stats, lineup);
-  const message = formatHalftimeMessage(pick, live.homeScore, live.awayScore, stats, narrative);
+  const stats = await fetchEventStats(currentPick.fixtureId);
+  const lineup = await fetchEventLineup(currentPick.fixtureId);
+  const narrative = await generateHalftimeNarrative(currentPick, live.homeScore, live.awayScore, stats, lineup);
+  const message = formatHalftimeMessage(currentPick, live.homeScore, live.awayScore, stats, narrative);
+  const halfTimeMessageId = await sendToGroup(message, {
+    replyToMessageId: currentPick.tipMessageId ?? undefined,
+  });
 
-  await sendToGroup(message);
-  updateHalftimeNotified(pick.fixtureId);
+  updateHalftimeNotified(currentPick.fixtureId, halfTimeMessageId);
 
-  logger.info(`[halftime] update sent for ${pick.homeTeam} vs ${pick.awayTeam}`);
+  logger.info(`[halftime] update sent for ${currentPick.homeTeam} vs ${currentPick.awayTeam}`);
   return true;
 }
 

@@ -180,6 +180,8 @@ function seedPicksFromCheckpoints(targetDate: string): void {
       awayTeam: fixture.awayTeam,
       postedAt: new Date(`${targetDate}T08:00:00Z`).toISOString(),
       kickoffAt: fixture.date,
+      preMatchReasoning: analysis.shortReasoning,
+      tipMessageId: null,
       finalPick: analysis.finalPick,
       bestBettingMarket: analysis.bestBettingMarket,
       confidence: analysis.confidence,
@@ -187,7 +189,9 @@ function seedPicksFromCheckpoints(targetDate: string): void {
       actualScore: null,
       resolvedAt: null,
       halfTimeNotifiedAt: null,
+      halfTimeMessageId: null,
       fullTimeNotifiedAt: null,
+      fullTimeMessageId: null,
     };
 
     addPick(record);

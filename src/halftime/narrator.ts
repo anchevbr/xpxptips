@@ -10,6 +10,8 @@ import { config } from '../config';
 import { logger } from '../utils/logger';
 import { createOpenAIClient } from '../utils/openai-client';
 import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
+import { assessHalftimeTipState, halftimeStatusLabel } from './tip-state';
+import { sanitizeCommentaryText } from '../utils/commentary';
 import type { PickRecord } from '../types';
 import type { EventStat, LineupPlayer } from './stats-fetcher';
 
@@ -55,11 +57,24 @@ export async function generateHalftimeNarrative(
   const model = config.openai.commentaryModel;
   const scoreStr =
     homeScore !== null && awayScore !== null ? `${homeScore}–${awayScore}` : 'Άγνωστο';
+  const halftimeState = assessHalftimeTipState(pick, homeScore, awayScore);
+  const preMatchReasoning = pick.preMatchReasoning?.trim() || 'Δεν διασώθηκε η αρχική prematch λογική μας.';
 
   const statsBlock = formatStatsBlock(stats);
   const lineupBlock = formatLineupBlock(lineup, pick.homeTeam, pick.awayTeam);
 
   const matchDate = pick.date; // YYYY-MM-DD
+  const stateInstruction =
+    halftimeState === 'lost'
+      ? `Η πρόταση έχει ουσιαστικά χαθεί ήδη από το ημίχρονο. Γράψε 2–3 σύντομες προτάσεις. ` +
+        `Πες ξεκάθαρα τι περιμέναμε πριν το ματς, τι δεν συνέβη και γιατί χάθηκε ήδη. ` +
+        `ΜΗΝ γράψεις τίποτα για το πώς μπορεί να κυλήσει το β' ημίχρονο ή τι ίσως γίνει από εδώ και πέρα.`
+      : halftimeState === 'won'
+      ? `Η πρόταση έχει ήδη επιβεβαιωθεί από το ημίχρονο. Γράψε 2–3 σύντομες προτάσεις με θετική ενέργεια. ` +
+        `Σύνδεσε ρητά την αρχική prematch ιδέα με ό,τι επιβεβαιώθηκε ήδη μέσα στο ματς.`
+      : `Γράψε 3 σύντομες προτάσεις που πατούν πάνω στην αρχική μας ανάλυση: τι περιμέναμε pre-match και τι βλέπουμε τώρα. ` +
+        `Αν η εικόνα είναι αρνητική, πες το καθαρά χωρίς να παρουσιάσεις την πρόταση σαν χαμένη αν δεν έχει κριθεί ήδη.`;
+
   const prompt =
     `Είσαι αθλητικός αναλυτής για κανάλι στοιχημάτων στο Telegram. ` +
     `Κάνε web search ΜΟΝΟ για τον αγώνα που παίζεται ΣΗΜΕΡΑ, ${matchDate}: ` +
@@ -72,16 +87,17 @@ export async function generateHalftimeNarrative(
     `Ημερομηνία: ${matchDate}\n` +
     `Πρόταση: "${pick.finalPick}" (market: ${pick.bestBettingMarket})\n` +
     `Σκορ Ημιχρόνου: ${scoreStr}\n\n` +
+    `🧠 ΑΡΧΙΚΗ PRE-MATCH ΛΟΓΙΚΗ:\n${preMatchReasoning}\n\n` +
+    `📍 ΚΑΤΑΣΤΑΣΗ ΣΤΟ ΗΜΙΧΡΟΝΟ: ${halftimeStatusLabel(halftimeState)}\n\n` +
     `📊 ΣΤΑΤΙΣΤΙΚΑ ΗΜΙΧΡΟΝΟΥ:\n${statsBlock}\n\n` +
     (lineupBlock ? `👥 ΕΝΔΕΚΑΔΕΣ:\n${lineupBlock}\n\n` : '') +
     `📝 ΟΔΗΓΙΕΣ:\n` +
-    `Γράψε ακριβώς 3–4 προτάσεις στα ελληνικά που:\n` +
+    `${stateInstruction}\n` +
+    `Αν βάλεις ονόματα παικτών ή match events, να είναι από ΑΥΤΟ το ματς σήμερα.\n` +
     `1. Αναφέρουν έναν ή δύο συγκεκριμένους παίκτες με στατιστικά ΑΠΟ ΑΥΤΟ ΤΟ ΜΑΤΣ σήμερα (πχ "Ο Σλούκας έχει 12 πόντους", "Ο Ρονάλντο έχει σκοράρει"). Αν δεν βρεις στατιστικά παικτών για το συγκεκριμένο ματς, αναφέρεις το πιο λαμπρό στατιστικό ομάδας από τα παραπάνω δεδομένα.\n` +
-    `2. Αξιολογούν αν η πρότασή μας είναι ΣΕ ΚΑΛΟ ΔΡΟΜΟ, ΣΕ ΚΙΝΔΥΝΟ ή ΗΔΗ ΧΑΜΕΝΗ βάσει σκορ+στατιστικών.\n` +
-    `3. ΑΝ η πρόταση είναι ήδη χαμένη: πες ξεκάθαρα "Παιδιά, χάσαμε το tip λόγω [αιτία]" και εξήγησε σύντομα.\n` +
-    `   ΑΝ είναι 99% βέβαιο ότι δεν θα βγει (όχι απλώς δύσκολο, αλλά σχεδόν αδύνατο): πες "Παιδιά, αν δεν νιώθετε ασφάλεια μπορείτε να αποσύρετε το tip — τα σημάδια δεν είναι καλά."\n` +
-    `   ΣΕ ΚΑΘΕ ΑΛΛΗ ΠΕΡΙΠΤΩΣΗ: μη μιλάς για απόσυρση. Δώσε την εικόνα αντικειμενικά και κλείσε με εκτίμηση για το β' ημίχρονο.\n` +
-    `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links ή παραπομπές σε πηγές.`;
+    `2. Να δείχνουν αν επιβεβαιώθηκε ή διαψεύστηκε η αρχική μας ιδέα μέχρι στιγμής.\n` +
+    `3. ΑΝ η πρόταση είναι ήδη χαμένη: πες ξεκάθαρα τον λόγο και σταμάτα εκεί. Όχι future outlook.\n` +
+    `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links, domains ή παραπομπές σε πηγές.`;
 
   try {
     const resp = await runResponseWithActivityLogging({
@@ -104,8 +120,7 @@ export async function generateHalftimeNarrative(
     });
 
     const raw = extractResponseOutputText(resp);
-    // Strip any markdown links [text](url) → keep only text
-    const text = raw.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1').trim();
+    const text = sanitizeCommentaryText(raw);
     return text || 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος.';
   } catch (err) {
     logger.warn(`[halftime-narrator] GPT call failed: ${String(err)}`);
