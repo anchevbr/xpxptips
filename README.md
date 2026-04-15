@@ -458,7 +458,7 @@ Important implementation detail:
 | `TELEGRAM_LOG_BATCH_MS` | `15000` | Batch interval in milliseconds for private Telegram log delivery |
 | `APISPORTS_API_KEY` | `""` | API-FOOTBALL and API-BASKETBALL key used for discovery, enrichment, live polling, and result resolution |
 | `APISPORTS_TIMEOUT_MS` | `10000` | Timeout per API-Sports request; set to `0` to disable |
-| `PLANNING_CRON` | `0 2 * * *` | Nightly planning cron |
+| `PLANNING_CRON` | `30 2 * * *` | Nightly planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
 | `ANALYSIS_HOURS_BEFORE_KICKOFF` | `4` | Lead time for the heavy expert-analysis step; approved picks are sent immediately after analysis |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |

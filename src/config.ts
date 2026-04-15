@@ -79,8 +79,8 @@ export const config = {
   },
 
   scheduler: {
-    /** Cron that runs nightly to plan the next day's fixture posts (default: 2am UTC) */
-    planningCron: optional('PLANNING_CRON', '0 2 * * *'),
+    /** Cron that runs nightly to plan the next day's fixture posts (default: 02:30 in TIMEZONE) */
+    planningCron: optional('PLANNING_CRON', '30 2 * * *'),
     timezone: optional('TIMEZONE', 'Europe/Athens'),
     /** How many hours before kickoff to run analysis and send immediately if approved (default: 4) */
     analysisHoursBeforeKickoff: optionalNumber('ANALYSIS_HOURS_BEFORE_KICKOFF', 4),

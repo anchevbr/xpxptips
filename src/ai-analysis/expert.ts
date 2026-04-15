@@ -10,6 +10,26 @@ import { validateAnalysis } from './validator';
 import type { Fixture, MatchData, BettingAnalysis } from '../types';
 
 const openai = createOpenAIClient();
+const LIVE_CONTEXT_MAX_OUTPUT_TOKENS = 900;
+const RETRYABLE_OPENAI_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
+
+function getErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === 'number' ? status : undefined;
+}
+
+function isRetryableOpenAIError(error: unknown): boolean {
+  const status = getErrorStatus(error);
+  if (typeof status === 'number') {
+    return RETRYABLE_OPENAI_STATUS_CODES.has(status);
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  return /rate limit|timed out|timeout|temporarily unavailable|overloaded|connection reset|econnreset|etimedout|socket hang up/i.test(
+    message
+  );
+}
 
 /**
  * Live web search for a fixture — retrieves current form, injuries,
@@ -38,7 +58,7 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
 
   logger.info(
     `[expert] fetching live context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
-    `| model=${model} | effort=${effort} | timeoutMs=${config.openai.timeoutMs}`
+    `| model=${model} | effort=${effort} | maxOutputTokens=${LIVE_CONTEXT_MAX_OUTPUT_TOKENS} | timeoutMs=${config.openai.timeoutMs}`
   );
 
   const progressTimer = setInterval(() => {
@@ -50,24 +70,34 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
   }, 15_000);
 
   try {
-    const resp = await runResponseWithActivityLogging({
-      client: openai,
-      scope: 'expert-live-context',
-      model,
-      timeoutMs: config.openai.timeoutMs,
-      usageMeta: {
-        fixtureId: fixture.id,
-        homeTeam: fixture.homeTeam,
-        awayTeam: fixture.awayTeam,
-      },
-      params: {
-        model,
-        input: query,
-        reasoning: { effort },
-        text: { verbosity: 'low' },
-        tools: [{ type: 'web_search_preview' }],
-      } as Parameters<typeof openai.responses.stream>[0],
-    });
+    const resp = await withRetry(
+      () =>
+        runResponseWithActivityLogging({
+          client: openai,
+          scope: 'expert-live-context',
+          model,
+          timeoutMs: config.openai.timeoutMs,
+          usageMeta: {
+            fixtureId: fixture.id,
+            homeTeam: fixture.homeTeam,
+            awayTeam: fixture.awayTeam,
+          },
+          params: {
+            model,
+            input: query,
+            reasoning: { effort },
+            text: { verbosity: 'low' },
+            max_output_tokens: LIVE_CONTEXT_MAX_OUTPUT_TOKENS,
+            tools: [{ type: 'web_search_preview' }],
+          } as Parameters<typeof openai.responses.stream>[0],
+        }),
+      {
+        maxAttempts: 3,
+        initialDelayMs: 2_000,
+        label: `expert-live-context-${fixture.id}`,
+        shouldRetry: isRetryableOpenAIError,
+      }
+    );
 
     clearInterval(progressTimer);
 
@@ -144,7 +174,12 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
             },
           },
         } as Parameters<typeof openai.responses.create>[0]),
-      { maxAttempts: 3, label: `expert-analysis-${fixture.id}` }
+      {
+        maxAttempts: 3,
+        initialDelayMs: 2_000,
+        label: `expert-analysis-${fixture.id}`,
+        shouldRetry: isRetryableOpenAIError,
+      }
     );
   } catch (err) {
     logger.error(`[expert] OpenAI call failed for ${fixture.id}: ${String(err)}`);
