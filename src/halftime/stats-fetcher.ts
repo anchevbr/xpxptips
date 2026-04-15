@@ -33,7 +33,7 @@ function numericId(fixtureId: string): string {
  */
 export async function fetchLiveStatus(fixtureId: string): Promise<LiveEventStatus | null> {
   const id = numericId(fixtureId);
-  const url = `https://www.thesportsdb.com/api/v2/json/event/${id}`;
+  const url = `https://www.thesportsdb.com/api/v2/json/lookup/event/${id}`;
 
   try {
     const res = await fetch(url, {
@@ -42,17 +42,17 @@ export async function fetchLiveStatus(fixtureId: string): Promise<LiveEventStatu
     });
 
     if (!res.ok) {
-      logger.warn(`[halftime] fetchLiveStatus HTTP ${res.status} for ${fixtureId}`);
+      logger.warn(`[live-status] fetchLiveStatus HTTP ${res.status} for ${fixtureId}`);
       return null;
     }
 
-    const data = (await res.json()) as { event: Array<{
+    const data = (await res.json()) as { lookup: Array<{
       intHomeScore?: string | null;
       intAwayScore?: string | null;
       strStatus?: string | null;
     }> | null };
 
-    const ev = Array.isArray(data.event) ? data.event[0] : null;
+    const ev = Array.isArray(data.lookup) ? data.lookup[0] : null;
     if (!ev) return null;
 
     return {
@@ -61,7 +61,7 @@ export async function fetchLiveStatus(fixtureId: string): Promise<LiveEventStatu
       status: ev.strStatus ?? '',
     };
   } catch (err) {
-    logger.warn(`[halftime] fetchLiveStatus error for ${fixtureId}: ${String(err)}`);
+    logger.warn(`[live-status] fetchLiveStatus error for ${fixtureId}: ${String(err)}`);
     return null;
   }
 }

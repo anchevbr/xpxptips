@@ -24,7 +24,7 @@ interface V2EventDetail {
 }
 
 interface V2EventResponse {
-  event: V2EventDetail[] | V2EventDetail | null;
+  lookup: V2EventDetail[] | V2EventDetail | null;
 }
 
 function apiKey(): string {
@@ -51,7 +51,7 @@ function isFinished(status: string | null): boolean {
  */
 export async function fetchEventResult(fixtureId: string): Promise<EventResult | null> {
   const numericId = fixtureId.replace(/^sportsdb_/, '');
-  const url = `https://www.thesportsdb.com/api/v2/json/event/${numericId}`;
+  const url = `https://www.thesportsdb.com/api/v2/json/lookup/event/${numericId}`;
 
   try {
     const res = await fetch(url, {
@@ -66,7 +66,7 @@ export async function fetchEventResult(fixtureId: string): Promise<EventResult |
 
     const data = (await res.json()) as V2EventResponse;
     // The endpoint may return single object or array
-    const raw = data.event;
+    const raw = data.lookup;
     const event: V2EventDetail | null = Array.isArray(raw) ? raw[0] ?? null : raw;
 
     if (!event) {
