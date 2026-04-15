@@ -308,6 +308,17 @@ The code stores a provider-specific `liveDataFixtureId` in `data/picks-log.json`
 
 See `docs/api-sports.md` for the exact endpoints, league IDs, status semantics, and free-plan caveats used by the implementation.
 
+### Private operator logs
+
+The bot can also forward runtime logs to a private Telegram chat for operator monitoring.
+
+- Set `TELEGRAM_LOG_CHAT_ID` to a fixed personal chat id, or
+- send `/start` or `/logs on` to the bot in a private chat to subscribe dynamically,
+- send `/logs status` to check whether the current private chat is subscribed,
+- send `/logs off` to stop personal log delivery.
+
+The forwarder batches messages and is intended for operational visibility without opening the VPS.
+
 ### The Odds API
 
 The Odds API is used for Gate 5 and odds display.
@@ -442,6 +453,9 @@ Important implementation detail:
 | `OPENAI_LIVE_CONTEXT_EFFORT` | `high` | Reasoning effort for the live web-search context fetch |
 | `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for the final expert analysis |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
+| `TELEGRAM_LOG_CHAT_ID` | `""` | Optional fixed private Telegram chat id for runtime logs |
+| `TELEGRAM_LOG_LEVEL` | `info` | Minimum severity forwarded to private Telegram log delivery |
+| `TELEGRAM_LOG_BATCH_MS` | `15000` | Batch interval in milliseconds for private Telegram log delivery |
 | `APISPORTS_API_KEY` | `""` | API-FOOTBALL and API-BASKETBALL key used for discovery, enrichment, live polling, and result resolution |
 | `APISPORTS_TIMEOUT_MS` | `10000` | Timeout per API-Sports request; set to `0` to disable |
 | `PLANNING_CRON` | `0 2 * * *` | Nightly planning cron |

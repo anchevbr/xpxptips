@@ -1,13 +1,18 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // telegram.ts
 //
-// Broadcast-only Telegram client.
-// The bot never responds to users, answers commands, or behaves like an
-// assistant. Its sole purpose is to post curated betting analysis to the group.
+// Telegram client for broadcast posting plus private operator log subscription.
+// Group chats remain broadcast-only. Private /start and /logs commands are used
+// only to opt a personal chat in or out of runtime log delivery.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { Telegraf } from 'telegraf';
 import { config } from '../config';
+import {
+  addTelegramLogSubscriber,
+  isTelegramLogSubscriber,
+  removeTelegramLogSubscriber,
+} from '../utils/telegram-log-subscribers';
 import { logger } from '../utils/logger';
 
 let bot: Telegraf | null = null;
@@ -21,8 +26,53 @@ export function createBot(): Telegraf {
 
   bot = new Telegraf(config.telegram.botToken);
 
-  // Broadcast-only — no commands or conversational handlers registered.
-  // Silently ignore any user messages so the bot does not reply to the group.
+  bot.start(async (ctx) => {
+    if (ctx.chat.type !== 'private') return;
+
+    addTelegramLogSubscriber(String(ctx.chat.id));
+    await ctx.reply(
+      'Personal runtime logs were enabled for this chat.\n' +
+      'Use /logs status to check status and /logs off to stop them.',
+      { link_preview_options: { is_disabled: true } },
+    );
+  });
+
+  bot.command('logs', async (ctx) => {
+    if (ctx.chat.type !== 'private') return;
+
+    const text = 'text' in ctx.message ? ctx.message.text : '/logs';
+    const action = text.split(/\s+/)[1]?.toLowerCase() ?? 'status';
+    const chatId = String(ctx.chat.id);
+
+    if (action === 'on' || action === 'start') {
+      const added = addTelegramLogSubscriber(chatId);
+      await ctx.reply(
+        added
+          ? 'This private chat is now subscribed to runtime logs.'
+          : 'This private chat is already subscribed to runtime logs.',
+        { link_preview_options: { is_disabled: true } },
+      );
+      return;
+    }
+
+    if (action === 'off' || action === 'stop') {
+      const removed = removeTelegramLogSubscriber(chatId);
+      await ctx.reply(
+        removed
+          ? 'Runtime log delivery was disabled for this chat.'
+          : 'This private chat was not subscribed to runtime logs.',
+        { link_preview_options: { is_disabled: true } },
+      );
+      return;
+    }
+
+    await ctx.reply(
+      isTelegramLogSubscriber(chatId)
+        ? 'This private chat is subscribed to runtime logs.'
+        : 'This private chat is not subscribed. Use /logs on to enable it.',
+      { link_preview_options: { is_disabled: true } },
+    );
+  });
 
   // Error handler (logs only — no user-facing replies)
   bot.catch((err: unknown) => {

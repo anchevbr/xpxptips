@@ -25,6 +25,9 @@ export const config = {
   telegram: {
     botToken: required('TELEGRAM_BOT_TOKEN'),
     groupChatId: required('TELEGRAM_GROUP_CHAT_ID'),
+    logChatId: optional('TELEGRAM_LOG_CHAT_ID', ''),
+    logLevel: optional('TELEGRAM_LOG_LEVEL', 'info'),
+    logBatchMs: optionalNumber('TELEGRAM_LOG_BATCH_MS', 15_000),
   },
 
   openai: {
