@@ -8,6 +8,8 @@
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "typecheck": "tsc --noEmit",
+    "deploy:vps": "./scripts/deploy-vps.sh",
+    "deploy:vps:reset-data": "./scripts/deploy-vps.sh --reset-data",
     "test-runner": "ts-node-dev --transpile-only src/test/test-runner.ts",
     "test-runner-compiled": "node dist/test/test-runner.js",
     "test-report": "ts-node-dev --transpile-only src/test/test-report.ts",

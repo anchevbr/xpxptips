@@ -470,6 +470,14 @@ cp .env.example .env
 
 Fill in your keys before starting the bot.
 
+### Configure VPS deploy
+
+```bash
+cp .deploy.env.example .deploy.env
+```
+
+Fill in the VPS host, app path, PM2 app name, and optionally `DEPLOY_SSH_PASSWORD` for password-based SSH.
+
 ### Development mode
 
 ```bash
@@ -491,12 +499,48 @@ npm start
 | `npm run build` | Compile TypeScript into `dist/` |
 | `npm start` | Run the compiled app |
 | `npm run typecheck` | Run TypeScript typecheck without emit |
+| `npm run deploy:vps` | Build locally, upload to the VPS, back up the current app, install runtime deps, restart PM2, and run a smoke check |
+| `npm run deploy:vps:reset-data` | Same deploy flow, but also clears checkpoints, picks log, and dedup data for the VPS app |
 | `npm run test-runner` | Execute the full pipeline for a target date |
 | `npm run test-runner-compiled` | Run the compiled test runner from `dist/test/test-runner.js` |
 | `npm run test-report` | Seed picks, assign outcomes, and send a pinned test report |
 | `npm run test-halftime` | Send 3 halftime test scenarios |
 | `npm run test-fulltime` | Send 3 full-time test scenarios |
 | `npm run test-crash` | Run the two-phase crash recovery test |
+
+## VPS deploy flow
+
+Standard deploy:
+
+```bash
+npm run deploy:vps
+```
+
+Deploy and clear the app's runtime data on the VPS:
+
+```bash
+npm run deploy:vps:reset-data
+```
+
+Useful direct flags:
+
+```bash
+./scripts/deploy-vps.sh --dry-run
+./scripts/deploy-vps.sh --skip-build
+./scripts/deploy-vps.sh --skip-smoke-check
+./scripts/deploy-vps.sh --reset-data
+```
+
+What the deploy script does:
+
+1. runs local `typecheck` and `build` unless skipped,
+2. creates a clean tarball from the current workspace,
+3. uploads it to the VPS,
+4. backs up the remote app directory,
+5. replaces code in place while preserving `.env`, `data/`, and `logs/`,
+6. runs `npm ci --omit=dev` on the VPS,
+7. restarts the configured PM2 app,
+8. runs a lightweight API-Sports smoke check unless skipped.
 
 ## Manual test scripts
 
