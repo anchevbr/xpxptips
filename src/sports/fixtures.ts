@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import { fetchFixturesViaTheSportsDB } from './providers/thesportsdb-fixtures';
+import { fetchFixturesViaApiSports } from './providers/api-sports-fixtures';
 import { config } from '../config';
 import type { Fixture } from '../types';
 
@@ -9,9 +9,9 @@ import type { Fixture } from '../types';
  * returns all fixtures regardless of status (for past-date testing).
  */
 export async function fetchTodayFixtures(date: string): Promise<Fixture[]> {
-  logger.info(`[fixtures] fetching fixtures for ${date} via TheSportsDB`);
+  logger.info(`[fixtures] fetching fixtures for ${date} via API-Sports`);
 
-  let fixtures = await fetchFixturesViaTheSportsDB(date);
+  let fixtures = await fetchFixturesViaApiSports(date);
 
   // Optional test filters (set TEST_LEAGUE, TEST_LEAGUES, and/or TEST_MAX env vars)
   const testLeague = process.env.TEST_LEAGUE;

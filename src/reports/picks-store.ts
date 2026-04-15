@@ -10,7 +10,7 @@
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../utils/logger';
-import type { PickRecord } from '../types';
+import type { LiveDataProvider, PickRecord } from '../types';
 
 const PICKS_LOG = path.resolve('./data/picks-log.json');
 
@@ -65,6 +65,28 @@ export function updateKickoffAt(fixtureId: string, kickoffAt: string): void {
     return;
   }
   picks[idx]!.kickoffAt = kickoffAt;
+  writePicks(picks);
+}
+
+export function updateLiveDataBinding(
+  fixtureId: string,
+  provider: LiveDataProvider,
+  liveDataFixtureId: string,
+): void {
+  const picks = readPicks();
+  const idx = picks.findIndex(p => p.fixtureId === fixtureId);
+  if (idx < 0) {
+    logger.warn(`[picks-store] cannot update live-data binding — not found: ${fixtureId}`);
+    return;
+  }
+
+  const pick = picks[idx]!;
+  if (pick.liveDataProvider === provider && pick.liveDataFixtureId === liveDataFixtureId) {
+    return;
+  }
+
+  pick.liveDataProvider = provider;
+  pick.liveDataFixtureId = liveDataFixtureId;
   writePicks(picks);
 }
 

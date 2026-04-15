@@ -69,8 +69,10 @@ export const config = {
   },
 
   sports: {
-    /** TheSportsDB request timeout in milliseconds. Set to 0 to disable the client-side cap. */
-    theSportsDbTimeoutMs: optionalNumber('THESPORTSDB_TIMEOUT_MS', 10_000),
+    /** Optional API-Sports key used for API-FOOTBALL / API-BASKETBALL live polling and result resolution. */
+    apiSportsKey: optional('APISPORTS_API_KEY', optional('API_SPORTS_API_KEY', '')),
+    /** API-Sports request timeout in milliseconds. Set to 0 to disable the client-side cap. */
+    apiSportsTimeoutMs: optionalNumber('APISPORTS_TIMEOUT_MS', 10_000),
   },
 
   scheduler: {

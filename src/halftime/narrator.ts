@@ -44,8 +44,8 @@ function formatLineupBlock(lineup: LineupPlayer[], homeTeam: string, awayTeam: s
  * @param pick        The published PickRecord
  * @param homeScore   HT home score (null if unknown)
  * @param awayScore   HT away score (null if unknown)
- * @param stats       Team stats from TheSportsDB
- * @param lineup      Player lineup from TheSportsDB (optional)
+ * @param stats       Team stats from the live-data provider
+ * @param lineup      Player lineup from the live-data provider (optional)
  */
 export async function generateHalftimeNarrative(
   pick: PickRecord,

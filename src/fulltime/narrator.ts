@@ -38,7 +38,7 @@ function formatLineupBlock(lineup: LineupPlayer[], homeTeam: string, awayTeam: s
  * @param homeScore  Final home score
  * @param awayScore  Final away score
  * @param outcome    'win' | 'loss' | 'push'
- * @param stats      Full-time stats from TheSportsDB
+ * @param stats      Full-time stats from the live-data provider
  * @param lineup     Player lineup (optional)
  */
 export async function generateFulltimeNarrative(

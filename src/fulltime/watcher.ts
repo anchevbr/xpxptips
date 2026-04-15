@@ -4,7 +4,7 @@
 // Schedules a per-fixture full-time poll window via setTimeout — no cron.
 // When a pick is published, scheduleFulltimeWatch() is called once.
 // It waits until kickoff + 85 min, then polls every 10 min for up to 2 hours
-// until TheSportsDB reports "FT" / "AET" / "Pen". Fires at most once per fixture.
+// until the live-data provider reports "FT" / "AET" / "Pen". Fires at most once per fixture.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { logger } from '../utils/logger';
@@ -95,7 +95,7 @@ function formatFulltimeMessage(
 /** Attempts one FT check; returns true if FT was detected and notification sent */
 async function attemptFulltimeNotification(pick: PickRecord): Promise<boolean> {
   const currentPick = getPickByFixtureId(pick.fixtureId) ?? pick;
-  const live = await fetchLiveStatus(currentPick.fixtureId);
+  const live = await fetchLiveStatus(currentPick);
   if (!live) return false;
 
   if (!isFullTime(live.status)) {
@@ -114,8 +114,8 @@ async function attemptFulltimeNotification(pick: PickRecord): Promise<boolean> {
     `(${homeScore ?? '?'}–${awayScore ?? '?'}) → ${outcome}`
   );
 
-  const stats = await fetchEventStats(currentPick.fixtureId);
-  const lineup = await fetchEventLineup(currentPick.fixtureId);
+  const stats = await fetchEventStats(currentPick);
+  const lineup = await fetchEventLineup(currentPick);
   const narrative = await generateFulltimeNarrative(currentPick, homeScore, awayScore, outcome, stats, lineup);
   const message = formatFulltimeMessage(currentPick, homeScore, awayScore, outcome, stats, narrative);
   const fullTimeMessageId = await sendToGroup(message, {

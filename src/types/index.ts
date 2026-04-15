@@ -6,6 +6,7 @@ export type Competition = 'EuroLeague' | 'NBA' | 'football' | 'other';
 export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type DataQuality = 'high' | 'medium' | 'low';
 export type InjuryStatus = 'out' | 'doubtful' | 'questionable';
+export type LiveDataProvider = 'api-football' | 'api-basketball';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -19,10 +20,14 @@ export interface Fixture {
   date: string;
   venue?: string;
   status: 'scheduled' | 'live' | 'finished';
-  /** TheSportsDB numeric IDs — present when discovered via that provider */
+  /** Provider team/league numeric IDs when available */
   homeTeamId?: string;
   awayTeamId?: string;
   leagueId?: string;
+  /** Preferred live-data provider for this fixture */
+  liveDataProvider?: LiveDataProvider;
+  /** Provider-specific fixture/game id used for HT/FT polling and result resolution */
+  liveDataFixtureId?: string;
 }
 
 // ─── Team Form & Stats ────────────────────────────────────────────────────────
@@ -110,7 +115,7 @@ export interface MatchData {
   scheduleContext: ScheduleContext;
   dataQuality: DataQuality;
   dataQualityNotes: string[];
-  /** Pre-formatted standings + recent form block from TheSportsDB, injected into expert prompt */
+  /** Pre-formatted structured provider data injected into the expert prompt */
   structuredContext?: string;
   /** Available betting markets and odds from The Odds API */
   availableOdds?: {
@@ -168,7 +173,7 @@ export interface DailyReport {
 // ─── Pick Records (for weekly/monthly reports) ────────────────────────────────
 
 export interface PickRecord {
-  /** Internal fixture ID, e.g. "sportsdb_2453351" */
+  /** Internal fixture ID, e.g. "api-football_1534911" */
   fixtureId: string;
   /** Match date YYYY-MM-DD */
   date: string;
@@ -179,6 +184,10 @@ export interface PickRecord {
   postedAt: string;
   /** ISO kickoff datetime for rebuilding live-update watchers after restart */
   kickoffAt?: string | null;
+  /** Preferred provider used for HT/FT polling and result resolution */
+  liveDataProvider?: LiveDataProvider | null;
+  /** Provider-specific fixture/game id used by HT/FT polling and result resolution */
+  liveDataFixtureId?: string | null;
   /** Short pre-match reasoning shown in the original tip message */
   preMatchReasoning?: string | null;
   /** Telegram message id of the original tip post */

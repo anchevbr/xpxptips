@@ -1,34 +1,19 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // result-fetcher.ts
 //
-// Fetches the actual final score for a fixture from TheSportsDB after the
-// match is played. Used by the weekly/monthly report job to resolve outcomes.
+// Fetches the actual final score for a fixture after the match is played
+// using API-Sports.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { fetchApiSportsEventResult } from '../sports/providers/api-sports-live';
 import { logger } from '../utils/logger';
+import type { PickRecord } from '../types';
 
 export interface EventResult {
   homeScore: number;
   awayScore: number;
-  /** Raw status string from TheSportsDB */
+  /** Raw status string from the live-data provider */
   status: string;
-}
-
-interface V2EventDetail {
-  idEvent: string;
-  strHomeTeam: string;
-  strAwayTeam: string;
-  intHomeScore: string | null;
-  intAwayScore: string | null;
-  strStatus: string | null;
-}
-
-interface V2EventResponse {
-  lookup: V2EventDetail[] | V2EventDetail | null;
-}
-
-function apiKey(): string {
-  return process.env['THESPORTSDB_API_KEY'] ?? '123';
 }
 
 function isFinished(status: string | null): boolean {
@@ -45,52 +30,34 @@ function isFinished(status: string | null): boolean {
 }
 
 /**
- * Fetches the final score for a fixture from TheSportsDB.
+ * Fetches the final score for a fixture.
  * Returns null if the match has not yet finished or the fetch fails.
- *
- * @param fixtureId — internal ID like "sportsdb_2453351"
  */
-export async function fetchEventResult(fixtureId: string): Promise<EventResult | null> {
-  const numericId = fixtureId.replace(/^sportsdb_/, '');
-  const url = `https://www.thesportsdb.com/api/v2/json/lookup/event/${numericId}`;
-
-  try {
-    const res = await fetch(url, {
-      headers: { 'X-API-KEY': apiKey() },
-      signal: AbortSignal.timeout(10_000),
-    });
-
-    if (!res.ok) {
-      logger.warn(`[result-fetcher] HTTP ${res.status} for event ${numericId}`);
-      return null;
-    }
-
-    const data = (await res.json()) as V2EventResponse;
-    // The endpoint may return single object or array
-    const raw = data.lookup;
-    const event: V2EventDetail | null = Array.isArray(raw) ? raw[0] ?? null : raw;
-
-    if (!event) {
-      logger.warn(`[result-fetcher] no event data for ${fixtureId}`);
-      return null;
-    }
-
-    if (!isFinished(event.strStatus)) {
-      logger.info(`[result-fetcher] ${fixtureId} not yet finished (status: ${event.strStatus ?? 'null'})`);
-      return null;
-    }
-
-    const homeScore = event.intHomeScore != null ? parseInt(event.intHomeScore, 10) : null;
-    const awayScore = event.intAwayScore != null ? parseInt(event.intAwayScore, 10) : null;
-
-    if (homeScore === null || awayScore === null || isNaN(homeScore) || isNaN(awayScore)) {
-      logger.warn(`[result-fetcher] missing scores for ${fixtureId}`);
-      return null;
-    }
-
-    return { homeScore, awayScore, status: event.strStatus ?? 'FT' };
-  } catch (err) {
-    logger.warn(`[result-fetcher] request failed for ${fixtureId}: ${String(err)}`);
+export async function fetchEventResult(pick: PickRecord): Promise<EventResult | null> {
+  const apiResult = await fetchApiSportsEventResult(pick);
+  if (apiResult === undefined) {
+    logger.warn(`[result-fetcher] unresolved API-Sports fixture for ${pick.fixtureId}`);
     return null;
   }
+
+  if (apiResult === null) {
+    logger.info(`[result-fetcher] ${pick.fixtureId} not yet finished (status: null)`);
+    return null;
+  }
+
+  if (!isFinished(apiResult.status)) {
+    logger.info(`[result-fetcher] ${pick.fixtureId} not yet finished (status: ${apiResult.status || 'null'})`);
+    return null;
+  }
+
+  if (apiResult.homeScore === null || apiResult.awayScore === null) {
+    logger.warn(`[result-fetcher] missing scores for ${pick.fixtureId}`);
+    return null;
+  }
+
+  return {
+    homeScore: apiResult.homeScore,
+    awayScore: apiResult.awayScore,
+    status: apiResult.status,
+  };
 }

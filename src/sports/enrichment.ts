@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import { enrichFromTheSportsDB, formatEnrichmentBlock } from './providers/thesportsdb-enrichment';
+import { enrichFromApiSports } from './providers/api-sports-enrichment';
 import { fetchOddsForFixture, getAverageOdds, getMostCommonTotalsLine } from './providers/odds-api';
 import type { Fixture, MatchData, TeamStats, InjuryReport, ScheduleContext } from '../types';
 
@@ -25,31 +25,7 @@ const emptySchedule: ScheduleContext = {
 export async function enrichFixture(fixture: Fixture): Promise<MatchData> {
   logger.info(`[enrichment] enriching ${fixture.homeTeam} vs ${fixture.awayTeam}`);
 
-  // Fetch standings, recent form, and event stats from TheSportsDB if team IDs are available
-  let structuredContext: string | undefined;
-  if (fixture.homeTeamId || fixture.awayTeamId) {
-    try {
-      // Extract event ID from fixture.id (format: "sportsdb_12345")
-      const eventId = fixture.id.startsWith('sportsdb_') 
-        ? fixture.id.replace('sportsdb_', '') 
-        : undefined;
-
-      const enrichment = await enrichFromTheSportsDB(
-        fixture.homeTeam,
-        fixture.awayTeam,
-        fixture.homeTeamId,
-        fixture.awayTeamId,
-        fixture.leagueId,
-        eventId,
-      );
-      const block = formatEnrichmentBlock(fixture.homeTeam, fixture.awayTeam, enrichment);
-      if (block.trim()) structuredContext = block;
-    } catch (err) {
-      logger.warn(`[enrichment] TheSportsDB enrichment failed: ${String(err)}`);
-    }
-  } else {
-    logger.info(`[enrichment] no team IDs available for ${fixture.homeTeam} vs ${fixture.awayTeam} — skipping structured enrichment`);
-  }
+  const providerEnrichment = await enrichFromApiSports(fixture);
 
   // Fetch real-time odds from The Odds API
   let availableOdds: MatchData['availableOdds'];
@@ -95,21 +71,19 @@ export async function enrichFixture(fixture: Fixture): Promise<MatchData> {
     logger.warn(`[enrichment] failed to fetch odds: ${String(err)}`);
   }
 
-  const hasRealData = !!structuredContext;
+  const hasRealData = !!providerEnrichment.structuredContext;
 
   return {
     fixture,
-    homeTeamStats: emptyStats(fixture.homeTeam),
-    awayTeamStats: emptyStats(fixture.awayTeam),
-    h2h: { totalGames: 0, homeTeamWins: 0, awayTeamWins: 0, draws: 0, lastFiveGames: [] },
-    homeInjuries: emptyInjury(fixture.homeTeam),
-    awayInjuries: emptyInjury(fixture.awayTeam),
+    homeTeamStats: providerEnrichment.homeTeamStats,
+    awayTeamStats: providerEnrichment.awayTeamStats,
+    h2h: providerEnrichment.h2h,
+    homeInjuries: providerEnrichment.homeInjuries,
+    awayInjuries: providerEnrichment.awayInjuries,
     scheduleContext: emptySchedule,
-    dataQuality: hasRealData ? 'high' : 'medium',
-    dataQualityNotes: hasRealData
-      ? ['Standings and recent form fetched from TheSportsDB']
-      : ['No external enrichment source — expert model uses live web search context'],
-    structuredContext,
+    dataQuality: providerEnrichment.dataQuality,
+    dataQualityNotes: providerEnrichment.dataQualityNotes,
+    structuredContext: providerEnrichment.structuredContext,
     availableOdds,
   };
 }

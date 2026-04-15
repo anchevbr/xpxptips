@@ -5,7 +5,7 @@
 //
 // Loads one pick from existing checkpoint analysis files, generates random
 // realistic halftime stats and score, calls GPT for the narrative, formats
-// the message and sends it to Telegram — no real TheSportsDB poll needed.
+// the message and sends it to Telegram — no real live-data poll needed.
 //
 // Usage:
 //   npm run test-halftime

@@ -2,7 +2,7 @@
 // reports/index.ts
 //
 // Orchestrates the weekly and monthly reporting pipeline:
-//   1. Resolve any pending pick outcomes via TheSportsDB
+//   1. Resolve any pending pick outcomes via the live-data provider
 //   2. Generate an AI narrative of what went right/wrong
 //   3. Format and post the report to Telegram
 //
@@ -63,7 +63,7 @@ export function isFirstMondayOfMonth(): boolean {
 
 /**
  * For each pending pick in the list, attempts to fetch the final score
- * from TheSportsDB and resolves the outcome. Updates picks-log.json in place.
+ * from the live-data provider and resolves the outcome. Updates picks-log.json in place.
  */
 async function resolvePickOutcomes(picks: PickRecord[]): Promise<PickRecord[]> {
   const pending = picks.filter(p => p.outcome === null);
@@ -72,7 +72,7 @@ async function resolvePickOutcomes(picks: PickRecord[]): Promise<PickRecord[]> {
   logger.info(`[reports] resolving ${pending.length} pending pick outcome(s)`);
 
   for (const pick of pending) {
-    const result = await fetchEventResult(pick.fixtureId);
+    const result = await fetchEventResult(pick);
     if (!result) {
       logger.info(`[reports] ${pick.fixtureId} — result not yet available`);
       continue;

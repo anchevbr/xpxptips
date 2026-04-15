@@ -5,7 +5,7 @@
 //
 // Loads one pick from existing checkpoint analysis files, generates a fake
 // final score, calls GPT for the narrative, formats the message and sends
-// it to Telegram — no real TheSportsDB poll needed.
+// it to Telegram — no real live-data poll needed.
 //
 // Runs win/loss plus push only when the selected market can actually push.
 //

@@ -165,14 +165,14 @@ ${schedSummary}
 ═══ DATA NOTE ═══
 ${dataNote}
 ${matchData.structuredContext ? `
-═══ STRUCTURED DATA (TheSportsDB — verified) ═══
+═══ STRUCTURED DATA (API-Sports — verified) ═══
 ${matchData.structuredContext}
 ` : ''}
 ═══ LIVE WEB SEARCH DATA ═══
 ${liveWebContext || 'No live data retrieved — rely on structured data and training knowledge.'}
 
 Based on the structured data and live web search data above, produce your expert betting analysis and return it in the required JSON format.
-IMPORTANT: Prioritise the STRUCTURED DATA (TheSportsDB) for standings and form over any conflicting information in the web search results — it is fetched directly from the official API.
+IMPORTANT: Prioritise the STRUCTURED DATA (API-Sports) when it is present — it is fetched directly from the official provider API.
 Use the LIVE WEB SEARCH DATA not only for scores and injuries but also for team-internal context, motivation, likely rotation, coaching pressure, aggregate/game-state dynamics, and any credible non-numeric factors that change the match script.
 Do not give a purely statistical recap if the live search contains relevant qualitative context.
 Keep shortReasoning tight: it should read like one compact betting note, not a mini article.

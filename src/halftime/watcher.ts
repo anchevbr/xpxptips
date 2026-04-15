@@ -4,7 +4,7 @@
 // Schedules a per-fixture halftime poll window via setTimeout — no cron.
 // When a pick is published, scheduleHalftimeWatch() is called once.
 // It waits until kickoff + 40 min, then polls every 2 min for up to 20 min
-// until TheSportsDB reports "HT". Fires at most once per fixture.
+// until the live-data provider reports "HT". Fires at most once per fixture.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { logger } from '../utils/logger';
@@ -77,7 +77,7 @@ function formatHalftimeMessage(
 /** Attempts one HT check; returns true if HT was detected and notification sent */
 async function attemptHalftimeNotification(pick: PickRecord): Promise<boolean> {
   const currentPick = getPickByFixtureId(pick.fixtureId) ?? pick;
-  const live = await fetchLiveStatus(currentPick.fixtureId);
+  const live = await fetchLiveStatus(currentPick);
   if (!live) return false;
 
   if (!isHalftime(live.status)) {
@@ -90,8 +90,8 @@ async function attemptHalftimeNotification(pick: PickRecord): Promise<boolean> {
     `(${live.homeScore ?? '?'}–${live.awayScore ?? '?'})`
   );
 
-  const stats = await fetchEventStats(currentPick.fixtureId);
-  const lineup = await fetchEventLineup(currentPick.fixtureId);
+  const stats = await fetchEventStats(currentPick);
+  const lineup = await fetchEventLineup(currentPick);
   const narrative = await generateHalftimeNarrative(currentPick, live.homeScore, live.awayScore, stats, lineup);
   const message = formatHalftimeMessage(currentPick, live.homeScore, live.awayScore, stats, narrative);
   const halfTimeMessageId = await sendToGroup(message, {

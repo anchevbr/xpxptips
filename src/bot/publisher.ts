@@ -12,9 +12,11 @@ import { markPosted } from '../scheduler/dedup';
 import { addPick } from '../reports/picks-store';
 import { scheduleHalftimeWatch } from '../halftime';
 import { scheduleFulltimeWatch } from '../fulltime';
+import { prewarmApiSportsBinding } from '../sports/providers/api-sports-live';
 import { logger, picksLogger } from '../utils/logger';
 import { sleep } from '../utils/retry';
 import type { AnalysisResult } from '../ai-analysis';
+import type { PickRecord } from '../types';
 
 const POST_DELAY_MS = 1_500; // pause between messages to avoid Telegram rate limits
 
@@ -34,7 +36,7 @@ export async function publishSingleResult(
     const tipMessageId = await sendToGroup(formatted.text);
     markPosted(matchData.fixture.id, date, matchData.fixture.competition);
 
-    const savedPick = {
+    const savedPick: PickRecord = {
       fixtureId: matchData.fixture.id,
       date,
       league: matchData.fixture.league,
@@ -42,6 +44,8 @@ export async function publishSingleResult(
       awayTeam: matchData.fixture.awayTeam,
       postedAt,
       kickoffAt: matchData.fixture.date,
+      liveDataProvider: matchData.fixture.liveDataProvider ?? null,
+      liveDataFixtureId: matchData.fixture.liveDataFixtureId ?? null,
       preMatchReasoning: analysis.shortReasoning,
       tipMessageId,
       finalPick: analysis.finalPick,
@@ -59,8 +63,23 @@ export async function publishSingleResult(
     // Persist to picks-log for weekly/monthly reports
     addPick(savedPick);
 
+    if (!savedPick.liveDataProvider || !savedPick.liveDataFixtureId) {
+      try {
+      const binding = await prewarmApiSportsBinding(savedPick);
+      if (binding) {
+        savedPick.liveDataProvider = binding.provider;
+        savedPick.liveDataFixtureId = binding.liveDataFixtureId;
+        logger.info(
+          `[publisher] live-data binding: ${savedPick.fixtureId} -> ${binding.provider}:${binding.liveDataFixtureId}`
+        );
+      }
+      } catch (err) {
+        logger.warn(`[publisher] live-data binding failed for ${savedPick.fixtureId}: ${String(err)}`);
+      }
+    }
+
     // Schedule a halftime live-stats update for this fixture
-    const kickoffMs = new Date(savedPick.kickoffAt).getTime();
+    const kickoffMs = new Date(matchData.fixture.date).getTime();
     scheduleHalftimeWatch(savedPick, kickoffMs);
     scheduleFulltimeWatch(savedPick, kickoffMs);
 

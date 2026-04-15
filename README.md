@@ -64,8 +64,9 @@ src/
 │   ├── fixtures.ts
 │   ├── enrichment.ts
 │   └── providers/
-│       ├── thesportsdb-fixtures.ts
-│       ├── thesportsdb-enrichment.ts
+│       ├── api-sports-fixtures.ts
+│       ├── api-sports-enrichment.ts
+│       ├── api-sports-live.ts
 │       └── odds-api.ts
 ├── test/
 │   ├── test-runner.ts
@@ -102,7 +103,7 @@ The planning job runs on `PLANNING_CRON` in `TIMEZONE`.
 Its job is to:
 
 1. determine the target date,
-2. fetch fixtures from TheSportsDB,
+2. fetch fixtures from API-Sports,
 3. write those fixtures to checkpoint storage,
 4. schedule a per-fixture analysis job for each fixture at `kickoff - ANALYSIS_HOURS_BEFORE_KICKOFF`,
 5. send the tip immediately when that analysis finishes and passes all gates.
@@ -111,21 +112,21 @@ If the process restarts, the scheduler attempts to recover pending analysis jobs
 
 ### 3. Fixture discovery
 
-Fixture discovery currently uses TheSportsDB V2 schedule endpoints with header authentication. The code fetches a full season schedule per supported league, then filters events down to the requested date.
+Fixture discovery uses API-Sports date-based schedule endpoints with header authentication. The code fetches the full day slate for each sport, then filters locally by tracked competition and team metadata.
 
 Supported competitions in the current code:
 
-| Competition | Sport | TheSportsDB league ID |
+| Competition | Sport | API-Sports league ID |
 | --- | --- | --- |
-| Premier League | Football | 4328 |
-| La Liga | Football | 4335 |
-| Serie A | Football | 4332 |
-| Bundesliga | Football | 4331 |
-| Ligue 1 | Football | 4334 |
-| UEFA Champions League | Football | 4480 |
-| UEFA Europa League | Football | 4481 |
-| NBA | Basketball | 4387 |
-| EuroLeague | Basketball | 4546 |
+| Premier League | Football | 39 |
+| La Liga | Football | 140 |
+| Serie A | Football | 135 |
+| Bundesliga | Football | 78 |
+| Ligue 1 | Football | 61 |
+| UEFA Champions League | Football | 2 |
+| UEFA Europa League | Football | 3 |
+| NBA | Basketball | 12 |
+| EuroLeague | Basketball | 120 |
 
 ### 4. Analysis flow
 
@@ -142,8 +143,8 @@ Pipeline behavior:
 
 For each fixture, the pipeline enriches the match with:
 
-- structured TheSportsDB context,
-- recent form and standings where available,
+- structured API-Sports context,
+- provider-supported H2H and injuries where available,
 - available real bookmaker odds from The Odds API.
 
 The enrichment layer also computes an `availableOdds` block that includes:
@@ -204,7 +205,7 @@ Current behavior:
 - start time: roughly `kickoff + 40 minutes`,
 - polling interval: every 10 minutes,
 - max attempts: 6,
-- trigger condition: TheSportsDB status becomes `HT`, `half time`, or `halftime`.
+- trigger condition: the live-data provider status becomes `HT`, `half time`, or `halftime`.
 
 When halftime is detected, the bot:
 
@@ -233,7 +234,7 @@ Current behavior:
 - start time: roughly `kickoff + 85 minutes`,
 - polling interval: every 10 minutes,
 - max attempts: 12,
-- trigger condition: TheSportsDB status becomes `FT`, `AET`, `Pen`, or `full time`.
+- trigger condition: the live-data provider status becomes `FT`, `AET`, `AOT`, `Pen`, or `full time`.
 
 When full-time is detected, the bot:
 
@@ -284,18 +285,28 @@ Current model usage in the codebase:
 
 The model is used for reasoning and explanation. Fixtures, live statuses, stats, and odds come from provider APIs.
 
-### TheSportsDB
+### API-Sports
 
-TheSportsDB is used for:
+API-Sports is the only sports-data provider used by the app for:
 
-- season schedule lookup,
-- live event status,
-- final result resolution,
-- event stats,
-- event lineups,
-- structured enrichment data.
+- fixture discovery,
+- pre-match structured enrichment,
 
-The current code assumes `THESPORTSDB_API_KEY` is present for the V2 endpoints in active use.
+- football halftime/full-time live status,
+- football full-time result resolution for reports,
+- football embedded fixture statistics and lineups,
+- basketball halftime/full-time live status,
+- basketball full-time result resolution for reports,
+- basketball quarter-by-quarter score breakdown used as lightweight live stats.
+
+Implemented provider split:
+
+- football: `API-FOOTBALL` (`https://v3.football.api-sports.io`)
+- basketball: `API-BASKETBALL` (`https://v1.basketball.api-sports.io`)
+
+The code stores a provider-specific `liveDataFixtureId` in `data/picks-log.json` when a tip is published so the watchers and the report resolver can reuse the same mapping.
+
+See `docs/api-sports.md` for the exact endpoints, league IDs, status semantics, and free-plan caveats used by the implementation.
 
 ### The Odds API
 
@@ -416,7 +427,7 @@ Important implementation detail:
 - `TELEGRAM_GROUP_CHAT_ID`
 - `OPENAI_API_KEY`
 - `THE_ODDS_API_KEY`
-- `THESPORTSDB_API_KEY`
+- `APISPORTS_API_KEY`
 
 ### Optional environment variables and defaults
 
@@ -431,7 +442,8 @@ Important implementation detail:
 | `OPENAI_LIVE_CONTEXT_EFFORT` | `high` | Reasoning effort for the live web-search context fetch |
 | `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for the final expert analysis |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
-| `THESPORTSDB_TIMEOUT_MS` | `10000` | Timeout per TheSportsDB league request; set to `0` to disable |
+| `APISPORTS_API_KEY` | `""` | API-FOOTBALL and API-BASKETBALL key used for discovery, enrichment, live polling, and result resolution |
+| `APISPORTS_TIMEOUT_MS` | `10000` | Timeout per API-Sports request; set to `0` to disable |
 | `PLANNING_CRON` | `0 2 * * *` | Nightly planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
 | `ANALYSIS_HOURS_BEFORE_KICKOFF` | `4` | Lead time for the heavy expert-analysis step; approved picks are sent immediately after analysis |
@@ -615,7 +627,7 @@ The most likely cause is Telegram permissions. The bot must be allowed to pin me
 Likely reasons:
 
 - the pre-match pick was never published, so no watcher was scheduled,
-- the match status never entered the expected TheSportsDB status inside the polling window,
+- the match status never entered the expected provider status inside the polling window,
 - the process restarted after the pick was posted and before the watcher fired,
 - provider stats or event lookup failed repeatedly during polling.
 
