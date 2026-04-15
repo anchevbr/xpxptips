@@ -14,6 +14,7 @@ DEPLOY_PORT="${DEPLOY_PORT:-22}"
 DEPLOY_USER="${DEPLOY_USER:-root}"
 DEPLOY_APP_DIR="${DEPLOY_APP_DIR:-/root/ai-betting}"
 DEPLOY_PM2_APP="${DEPLOY_PM2_APP:-ai-betting-bot}"
+DEPLOY_RUNTIME_ENV_FILE="${DEPLOY_RUNTIME_ENV_FILE:-$ROOT_DIR/.env}"
 DEPLOY_SSH_PASSWORD="${DEPLOY_SSH_PASSWORD:-}"
 
 RESET_DATA=false
@@ -81,11 +82,21 @@ require_var() {
   fi
 }
 
+require_file() {
+  local file_path="$1"
+  local description="$2"
+  if [[ ! -f "$file_path" ]]; then
+    echo "Missing ${description}: $file_path" >&2
+    exit 1
+  fi
+}
+
 require_cmd tar
 require_cmd ssh
 require_cmd scp
 require_cmd npm
 require_var DEPLOY_HOST
+require_file "$DEPLOY_RUNTIME_ENV_FILE" "runtime env file"
 
 SSH_CMD=(ssh -o StrictHostKeyChecking=accept-new -p "$DEPLOY_PORT")
 SCP_CMD=(scp -o StrictHostKeyChecking=accept-new -P "$DEPLOY_PORT")
@@ -106,6 +117,7 @@ Deploy config
   user         : $DEPLOY_USER
   app dir      : $DEPLOY_APP_DIR
   pm2 app      : $DEPLOY_PM2_APP
+  runtime env  : $DEPLOY_RUNTIME_ENV_FILE
   reset data   : $RESET_DATA
   skip build   : $SKIP_BUILD
   smoke check  : $([[ "$SKIP_SMOKE_CHECK" == true ]] && echo disabled || echo enabled)
@@ -126,6 +138,7 @@ commit_ref="$(cd "$ROOT_DIR" && git rev-parse --short HEAD 2>/dev/null || echo l
 timestamp="$(date +%Y%m%d-%H%M%S)"
 archive_path="/tmp/ai-betting-${commit_ref}-${timestamp}.tgz"
 remote_archive="/tmp/$(basename "$archive_path")"
+remote_env_file="/tmp/ai-betting-env-${commit_ref}-${timestamp}.env"
 
 cleanup() {
   rm -f "$archive_path"
@@ -149,9 +162,12 @@ echo "[deploy] creating archive $archive_path"
 echo "[deploy] uploading archive to $REMOTE_TARGET:$remote_archive"
 "${SCP_CMD[@]}" "$archive_path" "$REMOTE_TARGET:$remote_archive"
 
+echo "[deploy] uploading env file to $REMOTE_TARGET:$remote_env_file"
+"${SCP_CMD[@]}" "$DEPLOY_RUNTIME_ENV_FILE" "$REMOTE_TARGET:$remote_env_file"
+
 echo "[deploy] deploying on VPS"
 "${SSH_CMD[@]}" "$REMOTE_TARGET" \
-  "DEPLOY_APP_DIR='$DEPLOY_APP_DIR' DEPLOY_PM2_APP='$DEPLOY_PM2_APP' REMOTE_ARCHIVE='$remote_archive' RESET_DATA='$RESET_DATA' SKIP_SMOKE_CHECK='$SKIP_SMOKE_CHECK' bash -se" <<'REMOTE'
+  "DEPLOY_APP_DIR='$DEPLOY_APP_DIR' DEPLOY_PM2_APP='$DEPLOY_PM2_APP' REMOTE_ARCHIVE='$remote_archive' REMOTE_ENV_FILE='$remote_env_file' RESET_DATA='$RESET_DATA' SKIP_SMOKE_CHECK='$SKIP_SMOKE_CHECK' bash -se" <<'REMOTE'
 set -euo pipefail
 
 timestamp="$(date +%Y%m%d-%H%M%S)"
@@ -179,6 +195,7 @@ find "$DEPLOY_APP_DIR" -mindepth 1 -maxdepth 1 \
 
 tar -xzf "$REMOTE_ARCHIVE" -C "$DEPLOY_APP_DIR"
 find "$DEPLOY_APP_DIR" -name '._*' -type f -delete
+install -m 600 "$REMOTE_ENV_FILE" "$DEPLOY_APP_DIR/.env"
 
 cd "$DEPLOY_APP_DIR"
 npm ci --omit=dev
@@ -196,6 +213,7 @@ fi
 pm2 save >/dev/null 2>&1 || true
 
 rm -f "$REMOTE_ARCHIVE"
+rm -f "$REMOTE_ENV_FILE"
 
 if [[ "$SKIP_SMOKE_CHECK" != true ]]; then
   node - <<'JS'

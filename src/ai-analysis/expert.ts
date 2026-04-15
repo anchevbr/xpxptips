@@ -10,7 +10,6 @@ import { validateAnalysis } from './validator';
 import type { Fixture, MatchData, BettingAnalysis } from '../types';
 
 const openai = createOpenAIClient();
-const LIVE_CONTEXT_MAX_OUTPUT_TOKENS = 900;
 const RETRYABLE_OPENAI_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
 
 function getErrorStatus(error: unknown): number | undefined {
@@ -58,7 +57,7 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
 
   logger.info(
     `[expert] fetching live context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
-    `| model=${model} | effort=${effort} | maxOutputTokens=${LIVE_CONTEXT_MAX_OUTPUT_TOKENS} | timeoutMs=${config.openai.timeoutMs}`
+    `| model=${model} | effort=${effort} | timeoutMs=${config.openai.timeoutMs}`
   );
 
   const progressTimer = setInterval(() => {
@@ -87,7 +86,6 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
             input: query,
             reasoning: { effort },
             text: { verbosity: 'low' },
-            max_output_tokens: LIVE_CONTEXT_MAX_OUTPUT_TOKENS,
             tools: [{ type: 'web_search_preview' }],
           } as Parameters<typeof openai.responses.stream>[0],
         }),

@@ -450,7 +450,7 @@ Important implementation detail:
 | `OPENAI_REPORT_MODEL` | `gpt-5.4` | Model for weekly and monthly report narratives |
 | `OPENAI_COMMENTARY_EFFORT` | `high` | Reasoning effort for halftime and full-time commentary |
 | `OPENAI_REPORT_EFFORT` | `high` | Reasoning effort for report narratives |
-| `OPENAI_LIVE_CONTEXT_EFFORT` | `high` | Reasoning effort for the live web-search context fetch |
+| `OPENAI_LIVE_CONTEXT_EFFORT` | `medium` | Reasoning effort for the live web-search context fetch |
 | `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for the final expert analysis |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
 | `TELEGRAM_LOG_CHAT_ID` | `""` | Optional fixed private Telegram chat id for runtime logs |
@@ -458,7 +458,7 @@ Important implementation detail:
 | `TELEGRAM_LOG_BATCH_MS` | `15000` | Batch interval in milliseconds for private Telegram log delivery |
 | `APISPORTS_API_KEY` | `""` | API-FOOTBALL and API-BASKETBALL key used for discovery, enrichment, live polling, and result resolution |
 | `APISPORTS_TIMEOUT_MS` | `10000` | Timeout per API-Sports request; set to `0` to disable |
-| `PLANNING_CRON` | `30 2 * * *` | Nightly planning cron |
+| `PLANNING_CRON` | `0 3 * * *` | Nightly planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
 | `ANALYSIS_HOURS_BEFORE_KICKOFF` | `4` | Lead time for the heavy expert-analysis step; approved picks are sent immediately after analysis |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |
@@ -490,7 +490,7 @@ Fill in your keys before starting the bot.
 cp .deploy.env.example .deploy.env
 ```
 
-Fill in the VPS host, app path, PM2 app name, and optionally `DEPLOY_SSH_PASSWORD` for password-based SSH.
+Fill in the VPS host, app path, PM2 app name, and optionally `DEPLOY_SSH_PASSWORD` for password-based SSH. By default the deploy script uploads your local `.env` to the VPS on every deploy.
 
 ### Development mode
 
@@ -513,7 +513,7 @@ npm start
 | `npm run build` | Compile TypeScript into `dist/` |
 | `npm start` | Run the compiled app |
 | `npm run typecheck` | Run TypeScript typecheck without emit |
-| `npm run deploy:vps` | Build locally, upload to the VPS, back up the current app, install runtime deps, restart PM2, and run a smoke check |
+| `npm run deploy:vps` | Build locally, upload the app and local `.env` to the VPS, back up the current app, install runtime deps, restart PM2, and run a smoke check |
 | `npm run deploy:vps:reset-data` | Same deploy flow, but also clears checkpoints, picks log, and dedup data for the VPS app |
 | `npm run test-runner` | Execute the full pipeline for a target date |
 | `npm run test-runner-compiled` | Run the compiled test runner from `dist/test/test-runner.js` |
@@ -551,7 +551,7 @@ What the deploy script does:
 2. creates a clean tarball from the current workspace,
 3. uploads it to the VPS,
 4. backs up the remote app directory,
-5. replaces code in place while preserving `.env`, `data/`, and `logs/`,
+5. replaces code in place, installs the uploaded local `.env` on the VPS, and preserves `data/` and `logs/`,
 6. runs `npm ci --omit=dev` on the VPS,
 7. restarts the configured PM2 app,
 8. runs a lightweight API-Sports smoke check unless skipped.
