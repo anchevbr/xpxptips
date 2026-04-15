@@ -39,6 +39,7 @@ function isFinished(status: string | null): boolean {
     s.includes('full time') ||
     s.includes('finish') ||
     s.includes('aet') ||
+    s.includes('aot') ||
     s.includes('pen')
   );
 }

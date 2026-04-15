@@ -22,7 +22,7 @@ export type {
  */
 export function isFullTime(status: string): boolean {
   const s = status.toLowerCase().trim();
-  return s === 'ft' || s === 'aet' || s === 'pen' || s === 'full time';
+  return s === 'ft' || s === 'aet' || s === 'aot' || s === 'pen' || s === 'full time';
 }
 
 /**
