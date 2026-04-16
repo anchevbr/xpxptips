@@ -158,6 +158,7 @@ export async function runResponseWithActivityLogging({
 }: RunResponseWithActivityOptions): Promise<Response> {
   const startedAt = Date.now();
   const seenReasoningSummaries = new Set<string>();
+  let completedWebSearchCalls = 0;
   const requestOptions: Parameters<OpenAI['responses']['stream']>[1] = {
     maxRetries: 0,
   };
@@ -186,6 +187,7 @@ export async function runResponseWithActivityLogging({
   });
 
   stream.on('response.web_search_call.completed', (event) => {
+    completedWebSearchCalls += 1;
     logger.info(
       `[openai-activity] ${scope} | web_search=completed | item_id=${event.item_id}`
     );
@@ -212,7 +214,10 @@ export async function runResponseWithActivityLogging({
       `[openai-activity] ${scope} | stream=completed | elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
     );
 
-    logOpenAIUsage(scope, model, response as { id?: string; usage?: unknown }, usageMeta);
+    logOpenAIUsage(scope, model, response as { id?: string; usage?: unknown }, {
+      ...usageMeta,
+      web_search_calls: completedWebSearchCalls,
+    });
     logFinalActivity(scope, response);
     return response;
   } catch (err) {

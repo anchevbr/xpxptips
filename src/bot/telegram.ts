@@ -10,6 +10,7 @@ import { Telegraf } from 'telegraf';
 import { config } from '../config';
 import {
   addTelegramLogSubscriber,
+  getTelegramLogSubscriberIds,
   isTelegramLogSubscriber,
   removeTelegramLogSubscriber,
 } from '../utils/telegram-log-subscribers';
@@ -20,6 +21,20 @@ let bot: Telegraf | null = null;
 type SendToGroupOptions = {
   replyToMessageId?: number;
 };
+
+function operatorChatIds(): string[] {
+  const recipients = new Set<string>();
+
+  if (config.telegram.logChatId.trim()) {
+    recipients.add(config.telegram.logChatId.trim());
+  }
+
+  for (const chatId of getTelegramLogSubscriberIds()) {
+    recipients.add(chatId);
+  }
+
+  return [...recipients];
+}
 
 export function createBot(): Telegraf {
   if (bot) return bot;
@@ -129,6 +144,36 @@ export async function sendAndPinInGroup(text: string): Promise<void> {
     logger.error(`[telegram] sendAndPinInGroup failed: ${String(err)}`);
     throw err;
   }
+}
+
+export async function sendToOperatorChats(text: string): Promise<number> {
+  const b = createBot();
+  const recipients = operatorChatIds();
+
+  if (recipients.length === 0) {
+    return 0;
+  }
+
+  const results = await Promise.allSettled(
+    recipients.map(chatId =>
+      b.telegram.sendMessage(chatId, text, {
+        parse_mode: 'HTML',
+        link_preview_options: { is_disabled: true },
+      })
+    )
+  );
+
+  let delivered = 0;
+  for (const result of results) {
+    if (result.status === 'fulfilled') {
+      delivered += 1;
+      continue;
+    }
+
+    logger.error(`[telegram] sendToOperatorChats failed: ${String(result.reason)}`);
+  }
+
+  return delivered;
 }
 
 /**

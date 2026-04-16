@@ -82,6 +82,7 @@ export async function generateFulltimeNarrative(
       awayTeam: pick.awayTeam,
       league: pick.league,
       outcome,
+      date: pick.date,
     },
     emptyFallbackText: 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος.',
     errorFallbackText: 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος λόγω τεχνικού προβλήματος.',

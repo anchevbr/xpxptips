@@ -169,7 +169,8 @@ async function resolveEventId(
   sportKey: string,
   homeTeam: string,
   awayTeam: string,
-  key: string
+  key: string,
+  fixtureDate?: string,
 ): Promise<ApiEvent | null> {
   const model = config.openai.model;
   const effort = config.openai.expertEffort;
@@ -198,6 +199,7 @@ async function resolveEventId(
       homeTeam,
       awayTeam,
       events: events.length,
+      date: fixtureDate,
     });
 
     const raw = ((resp as { output_text?: string }).output_text ?? '').trim();
@@ -222,7 +224,7 @@ export async function fetchOddsForFixture(
   homeTeam: string,
   awayTeam: string,
   league: string,
-  _commenceTime: string
+  commenceTime: string
 ): Promise<EventOdds | null> {
   const key = apiKey();
   if (!key) {
@@ -237,7 +239,7 @@ export async function fetchOddsForFixture(
   }
 
   try {
-    const apiEvent = await resolveEventId(sportKey, homeTeam, awayTeam, key);
+    const apiEvent = await resolveEventId(sportKey, homeTeam, awayTeam, key, commenceTime.slice(0, 10));
     if (!apiEvent) {
       logger.warn(`[odds-api] no odds found for ${homeTeam} vs ${awayTeam} in ${league}`);
       return null;

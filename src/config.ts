@@ -79,8 +79,10 @@ export const config = {
   },
 
   scheduler: {
-    /** Cron that runs nightly to plan the current TIMEZONE day's fixture posts (default: 06:00 in TIMEZONE) */
-    planningCron: optional('PLANNING_CRON', '0 6 * * *'),
+    /** Cron that runs daily to send the previous fixture-date OpenAI spend report to operator Telegram chats. */
+    dailySpendCron: optional('DAILY_SPEND_CRON', '30 9 * * *'),
+    /** Cron that runs daily to plan the current TIMEZONE day's fixture posts (default: 10:00 in TIMEZONE) */
+    planningCron: optional('PLANNING_CRON', '0 10 * * *'),
     timezone: optional('TIMEZONE', 'Europe/Athens'),
     /** How many hours before kickoff to run analysis and send immediately if approved (default: 4) */
     analysisHoursBeforeKickoff: optionalNumber('ANALYSIS_HOURS_BEFORE_KICKOFF', 4),

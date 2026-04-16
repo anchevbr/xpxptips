@@ -80,6 +80,7 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
             fixtureId: fixture.id,
             homeTeam: fixture.homeTeam,
             awayTeam: fixture.awayTeam,
+            date: dateStr,
           },
           params: {
             model,
@@ -189,6 +190,7 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
     homeTeam: fixture.homeTeam,
     awayTeam: fixture.awayTeam,
     competition: fixture.competition,
+    date: fixture.date.slice(0, 10),
   });
 
   const outputText: string = (rawJson as { output_text?: string }).output_text ?? '';

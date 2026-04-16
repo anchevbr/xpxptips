@@ -13,7 +13,8 @@ This repository is built around three ideas:
 ## Current feature set
 
 - Pre-match tip generation for football and basketball fixtures.
-- Timezone-aware daily planning for the current calendar day in `TIMEZONE` (default `0 6 * * *` in `Europe/Athens`).
+- Daily OpenAI spend report to operator Telegram recipients for the previous fixture date (default `09:30` in `Europe/Athens`).
+- Timezone-aware daily planning for the current calendar day in `TIMEZONE` (default `0 10 * * *` in `Europe/Athens`).
 - Direct expert analysis for every fetched fixture, followed by hard publication gates.
 - OpenAI live-context fetch with web search, activity logging, and retry/backoff for transient failures.
 - Real bookmaker market validation before a tip can be published.
@@ -107,7 +108,7 @@ The Telegram client is intentionally minimal in the group chat:
 
 The planning job runs on `PLANNING_CRON` in `TIMEZONE`.
 
-The current default config is `0 6 * * *` in `Europe/Athens`.
+The current default config is `0 10 * * *` in `Europe/Athens`.
 
 Its job is to:
 
@@ -120,6 +121,22 @@ Its job is to:
 By default, the nightly run targets the current calendar day in `TIMEZONE`, not UTC tomorrow.
 
 If the process restarts, the scheduler attempts to recover pending analysis jobs for today and tomorrow in `TIMEZONE` from checkpoint data.
+
+### 2a. Daily OpenAI spend report
+
+The spend report runs on `DAILY_SPEND_CRON` in `TIMEZONE`.
+
+The current default config is `30 9 * * *` in `Europe/Athens`.
+
+Its job is to:
+
+1. aggregate all persisted OpenAI usage rows for the previous fixture date,
+2. sum exact input, cached-input, output, reasoning-output, and total tokens,
+3. count OpenAI web-search tool calls,
+4. convert usage to USD using the configured model pricing snapshot in code,
+5. send the result to operator Telegram recipients.
+
+Per-fixture usage is tagged with the fixture date, so late-night or after-midnight commentary for that slate is still counted against the correct day.
 
 ### 3. Fixture discovery
 
@@ -334,7 +351,8 @@ Additional runtime behavior:
 - live-context and report web-search calls are executed through the Responses API streaming path,
 - web-search activity and reasoning summaries are logged while the call is in flight,
 - transient OpenAI failures such as rate limits and timeouts are retried with backoff,
-- `openai-usage` lines are written for successful calls so token usage can be audited from logs.
+- `openai-usage` lines are written for successful calls so token usage can be audited from logs,
+- structured OpenAI usage rows are also appended to `data/openai-usage.ndjson` and used by the daily spend report.
 
 ### API-Sports
 
@@ -369,6 +387,8 @@ The bot can also forward runtime logs to a private Telegram chat for operator mo
 - send `/logs off` to stop personal log delivery.
 
 The forwarder batches messages, filters out noisy low-signal lines, and is intended for operational visibility without opening the VPS.
+
+The same operator recipients also receive the daily OpenAI spend report.
 
 ### The Odds API
 
@@ -484,7 +504,7 @@ This file is the base for weekly and monthly reporting.
 Important operational detail:
 
 - this file is separate from picks and checkpoints,
-- a `--reset-data` deploy clears checkpoints, picks log, and dedup state,
+- a `--reset-data` deploy clears checkpoints, picks log, OpenAI usage log, and dedup state,
 - it does not delete Telegram log subscriptions.
 
 ### Dedup store
@@ -525,7 +545,8 @@ Important implementation detail:
 | `TELEGRAM_LOG_BATCH_MS` | `15000` | Batch interval in milliseconds for private Telegram log delivery |
 | `APISPORTS_API_KEY` | `""` | API-FOOTBALL and API-BASKETBALL key used for discovery, enrichment, live polling, and result resolution |
 | `APISPORTS_TIMEOUT_MS` | `10000` | Timeout per API-Sports request; set to `0` to disable |
-| `PLANNING_CRON` | `0 6 * * *` | Nightly planning cron |
+| `DAILY_SPEND_CRON` | `30 9 * * *` | Daily operator Telegram spend report cron for the previous fixture date |
+| `PLANNING_CRON` | `0 10 * * *` | Daily planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
 | `ANALYSIS_HOURS_BEFORE_KICKOFF` | `4` | Lead time for the heavy expert-analysis step; approved picks are sent immediately after analysis |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |
@@ -581,7 +602,7 @@ npm start
 | `npm start` | Run the compiled app |
 | `npm run typecheck` | Run TypeScript typecheck without emit |
 | `npm run deploy:vps` | Build locally, upload the app and local `.env` to the VPS, back up the current app, install runtime deps, restart PM2, and run a smoke check |
-| `npm run deploy:vps:reset-data` | Same deploy flow, but also clears checkpoints, picks log, and dedup data for the VPS app |
+| `npm run deploy:vps:reset-data` | Same deploy flow, but also clears checkpoints, picks log, OpenAI usage log, and dedup data for the VPS app |
 | `npm run test-runner` | Execute the full pipeline for a target date |
 | `npm run test-runner-compiled` | Run the compiled test runner from `dist/test/test-runner.js` |
 | `npm run test-report` | Seed picks, assign outcomes, and send a pinned test report |
@@ -627,6 +648,7 @@ What the deploy script does:
 
 - `data/checkpoints/`,
 - `data/picks-log.json`,
+- `data/openai-usage.ndjson`,
 - `data/posted.json`.
 
 It does not remove `data/telegram-log-subscribers.json`.
@@ -709,6 +731,7 @@ Behavior:
 | Path | Purpose |
 | --- | --- |
 | `data/checkpoints/` | Resume state for fixtures and expert analysis |
+| `data/openai-usage.ndjson` | Persisted per-call OpenAI usage rows used for daily spend reporting |
 | `data/picks-log.json` | Published picks plus resolved live/report metadata |
 | `data/posted.json` | Dedup store in normal usage |
 | `data/telegram-log-subscribers.json` | Private operator chat subscriptions for runtime log forwarding |
@@ -720,7 +743,7 @@ Behavior:
 | `logs/combined.log` | Main structured runtime log |
 | `logs/error.log` | Error-only log |
 
-Every successful OpenAI response also writes an `openai-usage` line into the normal application logs with the exact API-reported `input_tokens`, `output_tokens`, and `total_tokens` for that call.
+Every successful OpenAI response also writes an `openai-usage` line into the normal application logs with the exact API-reported `input_tokens`, `output_tokens`, and `total_tokens` for that call. The same successful call is appended to `data/openai-usage.ndjson`, which is the canonical data source for the scheduled Telegram spend report.
 
 ## Operational notes
 
@@ -770,12 +793,13 @@ Use:
 npm run deploy:vps:reset-data
 ```
 
-when you want to clear stale checkpoints, picks history for the app runtime, and dedup state before a fresh production run.
+when you want to clear stale checkpoints, picks history, persisted OpenAI usage history, and dedup state before a fresh production run.
 
 It removes:
 
 - `data/checkpoints/`,
 - `data/picks-log.json`,
+- `data/openai-usage.ndjson`,
 - `data/posted.json`.
 
 It does not remove `data/telegram-log-subscribers.json`.

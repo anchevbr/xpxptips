@@ -11,6 +11,7 @@ async function main(): Promise<void> {
     `  Schedule : ${config.scheduler.planningCron} (${config.scheduler.timezone}), ` +
     `analyze and send ${config.scheduler.analysisHoursBeforeKickoff}h before kickoff`
   );
+  logger.info(`  Spend    : ${config.scheduler.dailySpendCron} (${config.scheduler.timezone})`);
   logger.info(`  Group    : ${config.telegram.groupChatId}`);
   logger.info('─────────────────────────────────────────────────────────');
 

@@ -88,6 +88,7 @@ export async function generateHalftimeNarrative(
       homeTeam: pick.homeTeam,
       awayTeam: pick.awayTeam,
       league: pick.league,
+      date: pick.date,
     },
     emptyFallbackText: 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος.',
     errorFallbackText: 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος λόγω τεχνικού προβλήματος.',

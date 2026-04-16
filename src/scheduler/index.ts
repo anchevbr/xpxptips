@@ -1,6 +1,7 @@
 import cron from 'node-cron';
 import { config } from '../config';
 import { logger } from '../utils/logger';
+import { runDailyOpenAISpendReport } from '../costs/openai-spend';
 import { fetchTodayFixtures } from '../sports/fixtures';
 import { runFullAnalysisPipeline } from '../ai-analysis';
 import { publishSingleResult } from '../bot/publisher';
@@ -298,7 +299,11 @@ function recoverJobsForDate(date: string): void {
  * analysis posts.
  */
 export function startScheduler(): void {
-  const { planningCron, timezone, analysisHoursBeforeKickoff } = config.scheduler;
+  const { dailySpendCron, planningCron, timezone, analysisHoursBeforeKickoff } = config.scheduler;
+
+  if (!cron.validate(dailySpendCron)) {
+    throw new Error(`Invalid cron expression: "${dailySpendCron}"`);
+  }
 
   if (!cron.validate(planningCron)) {
     throw new Error(`Invalid cron expression: "${planningCron}"`);
@@ -314,6 +319,18 @@ export function startScheduler(): void {
   recoverJobsForDate(todayInTimeZone(timezone));
   recoverJobsForDate(tomorrowInTimeZone(timezone));
   recoverPublishedWatchers();
+
+  cron.schedule(
+    dailySpendCron,
+    async () => {
+      try {
+        await runDailyOpenAISpendReport();
+      } catch (err) {
+        logger.error(`[scheduler] daily spend report failed: ${String(err)}`);
+      }
+    },
+    { timezone }
+  );
 
   cron.schedule(
     planningCron,
@@ -353,6 +370,9 @@ export function startScheduler(): void {
   logger.info(
     `[scheduler] planning cron registered — will run: "${planningCron}" (${timezone}), ` +
     `analyzing and posting each fixture ${analysisHoursBeforeKickoff}h before kickoff`
+  );
+  logger.info(
+    `[scheduler] daily spend cron registered — will run: "${dailySpendCron}" (${timezone}), reporting yesterday's fixture-date OpenAI spend to operator Telegram chats`
   );
   logger.info(`[scheduler] report cron registered — every Monday 10:00 ${timezone}`);
   logger.info(`[scheduler] halftime updates: per-fixture setTimeout (no cron)`);
