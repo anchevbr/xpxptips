@@ -102,17 +102,19 @@ The planning job runs on `PLANNING_CRON` in `TIMEZONE`.
 
 Its job is to:
 
-1. determine the target date,
+1. determine the target date in `TIMEZONE`,
 2. fetch fixtures from API-Sports,
 3. write those fixtures to checkpoint storage,
 4. schedule a per-fixture analysis job for each fixture at `kickoff - ANALYSIS_HOURS_BEFORE_KICKOFF`,
 5. send the tip immediately when that analysis finishes and passes all gates.
 
-If the process restarts, the scheduler attempts to recover pending analysis jobs for today and tomorrow from checkpoint data.
+By default, the nightly run targets the current calendar day in `TIMEZONE`, not UTC tomorrow.
+
+If the process restarts, the scheduler attempts to recover pending analysis jobs for today and tomorrow in `TIMEZONE` from checkpoint data.
 
 ### 3. Fixture discovery
 
-Fixture discovery uses API-Sports date-based schedule endpoints with header authentication. The code fetches the full day slate for each sport, then filters locally by tracked competition and team metadata.
+Fixture discovery uses API-Sports date-based schedule endpoints with header authentication. The code sends both the target `date` and the configured `TIMEZONE` so the provider returns the slate for the same calendar day the scheduler is targeting, then filters locally by tracked competition and team metadata.
 
 Supported competitions in the current code:
 
@@ -458,7 +460,7 @@ Important implementation detail:
 | `TELEGRAM_LOG_BATCH_MS` | `15000` | Batch interval in milliseconds for private Telegram log delivery |
 | `APISPORTS_API_KEY` | `""` | API-FOOTBALL and API-BASKETBALL key used for discovery, enrichment, live polling, and result resolution |
 | `APISPORTS_TIMEOUT_MS` | `10000` | Timeout per API-Sports request; set to `0` to disable |
-| `PLANNING_CRON` | `0 3 * * *` | Nightly planning cron |
+| `PLANNING_CRON` | `0 6 * * *` | Nightly planning cron |
 | `TIMEZONE` | `Europe/Athens` | Scheduler timezone |
 | `ANALYSIS_HOURS_BEFORE_KICKOFF` | `4` | Lead time for the heavy expert-analysis step; approved picks are sent immediately after analysis |
 | `MIN_CONFIDENCE_TO_PUBLISH` | `6` | Minimum expert confidence |

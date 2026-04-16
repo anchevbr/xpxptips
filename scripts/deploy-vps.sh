@@ -149,6 +149,7 @@ echo "[deploy] creating archive $archive_path"
 (
   cd "$ROOT_DIR"
   COPYFILE_DISABLE=1 COPY_EXTENDED_ATTRIBUTES_DISABLE=1 tar -czf "$archive_path" \
+    --format=ustar \
     --disable-copyfile \
     --exclude='.git' \
     --exclude='node_modules' \
@@ -193,7 +194,7 @@ find "$DEPLOY_APP_DIR" -mindepth 1 -maxdepth 1 \
   ! -name logs \
   -exec rm -rf {} +
 
-tar -xzf "$REMOTE_ARCHIVE" -C "$DEPLOY_APP_DIR"
+tar --warning=no-unknown-keyword --no-xattrs -xzf "$REMOTE_ARCHIVE" -C "$DEPLOY_APP_DIR"
 find "$DEPLOY_APP_DIR" -name '._*' -type f -delete
 install -m 600 "$REMOTE_ENV_FILE" "$DEPLOY_APP_DIR/.env"
 

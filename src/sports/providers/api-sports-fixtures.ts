@@ -149,8 +149,11 @@ function mapBasketballStatus(raw: string | null | undefined): Fixture['status'] 
   }
 }
 
-async function fetchFootballFixtures(date: string): Promise<Fixture[]> {
-  const data = await getApiSportsJson<FootballFixtureResponse[]>(FOOTBALL_BASE_URL, '/fixtures', { date });
+async function fetchFootballFixtures(date: string, timeZone: string): Promise<Fixture[]> {
+  const data = await getApiSportsJson<FootballFixtureResponse[]>(FOOTBALL_BASE_URL, '/fixtures', {
+    date,
+    timezone: timeZone,
+  });
   if (!data) return [];
 
   const errors = describeErrors(data.errors);
@@ -178,12 +181,15 @@ async function fetchFootballFixtures(date: string): Promise<Fixture[]> {
       liveDataFixtureId: String(item.fixture.id),
     }));
 
-  logger.info(`[fixtures] API-FOOTBALL returned ${fixtures.length} tracked fixture(s) for ${date}`);
+  logger.info(`[fixtures] API-FOOTBALL returned ${fixtures.length} tracked fixture(s) for ${date} (${timeZone})`);
   return fixtures;
 }
 
-async function fetchBasketballFixtures(date: string): Promise<Fixture[]> {
-  const data = await getApiSportsJson<BasketballGameResponse[]>(BASKETBALL_BASE_URL, '/games', { date });
+async function fetchBasketballFixtures(date: string, timeZone: string): Promise<Fixture[]> {
+  const data = await getApiSportsJson<BasketballGameResponse[]>(BASKETBALL_BASE_URL, '/games', {
+    date,
+    timezone: timeZone,
+  });
   if (!data) return [];
 
   const errors = describeErrors(data.errors);
@@ -211,19 +217,22 @@ async function fetchBasketballFixtures(date: string): Promise<Fixture[]> {
       liveDataFixtureId: String(item.id),
     }));
 
-  logger.info(`[fixtures] API-BASKETBALL returned ${fixtures.length} tracked fixture(s) for ${date}`);
+  logger.info(`[fixtures] API-BASKETBALL returned ${fixtures.length} tracked fixture(s) for ${date} (${timeZone})`);
   return fixtures;
 }
 
-export async function fetchFixturesViaApiSports(date: string): Promise<Fixture[]> {
-  logger.info(`[fixtures] fetching fixtures for ${date} via API-Sports`);
+export async function fetchFixturesViaApiSports(
+  date: string,
+  timeZone = config.scheduler.timezone,
+): Promise<Fixture[]> {
+  logger.info(`[fixtures] fetching fixtures for ${date} via API-Sports (${timeZone})`);
   const [footballFixtures, basketballFixtures] = await Promise.all([
-    fetchFootballFixtures(date),
-    fetchBasketballFixtures(date),
+    fetchFootballFixtures(date, timeZone),
+    fetchBasketballFixtures(date, timeZone),
   ]);
   const fixtures = [...footballFixtures, ...basketballFixtures].sort((left, right) =>
     left.date.localeCompare(right.date),
   );
-  logger.info(`[fixtures] API-Sports total: ${fixtures.length} fixture(s) for ${date}`);
+  logger.info(`[fixtures] API-Sports total: ${fixtures.length} fixture(s) for ${date} (${timeZone})`);
   return fixtures;
 }

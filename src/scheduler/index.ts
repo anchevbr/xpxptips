@@ -5,7 +5,12 @@ import { fetchTodayFixtures } from '../sports/fixtures';
 import { runFullAnalysisPipeline } from '../ai-analysis';
 import { publishSingleResult } from '../bot/publisher';
 import { alreadyPosted } from './dedup';
-import { tomorrowUtc, todayUtc, formatAthensDateTimeCompact } from '../utils/date';
+import {
+  formatAthensDateTimeCompact,
+  todayInTimeZone,
+  tomorrowInTimeZone,
+  yesterdayInTimeZone,
+} from '../utils/date';
 import { withRetry } from '../utils/retry';
 import { saveFixtures, loadFixtures } from '../utils/checkpoint';
 import { runWeeklyReport, runMonthlyReport, isFirstMondayOfMonth } from '../reports';
@@ -45,12 +50,6 @@ function logFixtureBlockEnd(fixture: Fixture, outcome: string, context?: Fixture
   logger.info('');
 }
 
-function yesterdayUtc(): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
-}
-
 function resolvePickKickoffAt(
   pick: PickRecord,
   fixturesByDate: Map<string, Fixture[] | null>
@@ -76,7 +75,12 @@ function resolvePickKickoffAt(
 }
 
 function recoverPublishedWatchers(): void {
-  const recentDates = new Set([yesterdayUtc(), todayUtc(), tomorrowUtc()]);
+  const { timezone } = config.scheduler;
+  const recentDates = new Set([
+    yesterdayInTimeZone(timezone),
+    todayInTimeZone(timezone),
+    tomorrowInTimeZone(timezone),
+  ]);
   const fixturesByDate = new Map<string, Fixture[] | null>();
   const candidatePicks = getAllPicks().filter(
     pick =>
@@ -188,13 +192,13 @@ function scheduleFixtureJob(
 // ─── Planning job ─────────────────────────────────────────────────────────────
 
 /**
- * Fetches the next day's fixtures and schedules a single per-fixture analysis
- * job that sends immediately if approved.
+ * Fetches the target day's fixtures and schedules a single per-fixture
+ * analysis job that sends immediately if approved.
  *
- * @param dateOverride  Override the target date (test mode). Normally tomorrow.
+ * @param dateOverride  Override the target date (test mode). Normally today in TIMEZONE.
  */
 export async function runPlanningJob(dateOverride?: string): Promise<void> {
-  const targetDate = dateOverride ?? tomorrowUtc();
+  const targetDate = dateOverride ?? todayInTimeZone(config.scheduler.timezone);
   logger.info(`[scheduler] planning job triggered — scheduling fixtures for ${targetDate}`);
 
   let fixtures: Fixture[] | null = loadFixtures(targetDate);
@@ -258,8 +262,9 @@ export async function runPlanningJob(dateOverride?: string): Promise<void> {
 // ─── Cron registration ────────────────────────────────────────────────────────
 
 /**
- * On startup, check if today's or tomorrow's fixtures were already checkpointed
- * and reschedule any pending analysis jobs after a restart.
+ * On startup, check if today's or tomorrow's fixtures were already
+ * checkpointed in TIMEZONE and reschedule any pending analysis jobs after a
+ * restart.
  */
 function recoverJobsForDate(date: string): void {
   const fixtures = loadFixtures(date);
@@ -289,7 +294,8 @@ function recoverJobsForDate(date: string): void {
 
 /**
  * Registers the nightly planning cron job.
- * Fires once per day to schedule the next day's per-fixture analysis posts.
+ * Fires once per day to schedule the current TIMEZONE day's per-fixture
+ * analysis posts.
  */
 export function startScheduler(): void {
   const { planningCron, timezone, analysisHoursBeforeKickoff } = config.scheduler;
@@ -304,9 +310,9 @@ export function startScheduler(): void {
     );
   }
 
-  // Recover any pending jobs for today and tomorrow in case of restart.
-  recoverJobsForDate(todayUtc());
-  recoverJobsForDate(tomorrowUtc());
+  // Recover any pending jobs for today and tomorrow in TIMEZONE in case of restart.
+  recoverJobsForDate(todayInTimeZone(timezone));
+  recoverJobsForDate(tomorrowInTimeZone(timezone));
   recoverPublishedWatchers();
 
   cron.schedule(
