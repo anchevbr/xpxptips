@@ -10,7 +10,7 @@ import { runPlanningJob } from '../scheduler';
  *   npm run test-runner
  *
  * Fetches fixtures, runs expert analysis for every fixture, and publishes picks to Telegram.
- * All published picks are logged to logs/picks.log for audit.
+ * Use logs/combined.log to inspect the full execution trace.
  */
 async function main(): Promise<void> {
   const testDate = process.argv[2] ?? '2026-04-16';
@@ -31,7 +31,6 @@ async function main(): Promise<void> {
     logger.info('═══════════════════════════════════════════════════════════════');
     logger.info('TEST RUNNER COMPLETE');
     logger.info('═══════════════════════════════════════════════════════════════');
-    logger.info('Check logs/picks.log for published picks');
     logger.info('Check logs/combined.log for full execution trace');
     logger.info('');
 

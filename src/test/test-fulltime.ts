@@ -17,76 +17,16 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
 import { logger } from '../utils/logger';
+import { buildInlineKeyStats } from '../utils/commentary';
 import { generateFulltimeNarrative } from '../fulltime/narrator';
 import { determineOutcome } from '../fulltime/stats-fetcher';
 import { sendToGroup } from '../bot/telegram';
 import { loadTestPick } from './load-test-pick';
+import { isBasketballLeague, randomBasketballStats, randomFootballStats, type FakeStat } from './support';
 import type { PickRecord } from '../types';
 
-const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
-
-function rand(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function isBasketball(league: string): boolean {
-  return (
-    league.toLowerCase().includes('euroleague') ||
-    league.toLowerCase().includes('nba') ||
-    league.toLowerCase().includes('basketball') ||
-    league.toLowerCase().includes('euroliga')
-  );
-}
-
-// ─── Random full-time stats ───────────────────────────────────────────────────
-
-interface FakeStat { strStat: string; intHome: string; intAway: string }
-
-function randomFootballStats(): FakeStat[] {
-  const homePoss = rand(38, 65);
-  return [
-    { strStat: 'Shots on Goal',    intHome: String(rand(3, 10)),  intAway: String(rand(2, 8)) },
-    { strStat: 'Shots off Goal',   intHome: String(rand(2, 7)),   intAway: String(rand(1, 6)) },
-    { strStat: 'Total Shots',      intHome: String(rand(8, 20)),  intAway: String(rand(5, 16)) },
-    { strStat: 'Ball Possession',  intHome: String(homePoss),     intAway: String(100 - homePoss) },
-    { strStat: 'Corner Kicks',     intHome: String(rand(2, 9)),   intAway: String(rand(1, 7)) },
-    { strStat: 'Fouls',            intHome: String(rand(6, 16)),  intAway: String(rand(5, 15)) },
-    { strStat: 'Yellow Cards',     intHome: String(rand(0, 3)),   intAway: String(rand(0, 3)) },
-    { strStat: 'Offsides',         intHome: String(rand(0, 5)),   intAway: String(rand(0, 4)) },
-    { strStat: 'Goalkeeper Saves', intHome: String(rand(2, 6)),   intAway: String(rand(2, 8)) },
-    { strStat: 'expected_goals',   intHome: `${rand(0, 2)}.${rand(0, 9)}`, intAway: `${rand(0, 1)}.${rand(0, 9)}` },
-  ];
-}
-
-function randomBasketballStats(): FakeStat[] {
-  return [
-    { strStat: 'Field Goals %',  intHome: String(rand(40, 58)),  intAway: String(rand(38, 55)) },
-    { strStat: '3 Points %',     intHome: String(rand(28, 45)),  intAway: String(rand(25, 43)) },
-    { strStat: 'Free Throws %',  intHome: String(rand(65, 90)),  intAway: String(rand(60, 88)) },
-    { strStat: 'Rebounds',       intHome: String(rand(30, 50)),  intAway: String(rand(28, 48)) },
-    { strStat: 'Assists',        intHome: String(rand(12, 28)),  intAway: String(rand(10, 26)) },
-    { strStat: 'Turnovers',      intHome: String(rand(6, 18)),   intAway: String(rand(6, 18)) },
-    { strStat: 'Steals',         intHome: String(rand(4, 12)),   intAway: String(rand(4, 12)) },
-    { strStat: 'Blocks',         intHome: String(rand(2, 8)),    intAway: String(rand(2, 8)) },
-  ];
-}
-
 // ─── Format message (mirrors watcher.ts) ─────────────────────────────────────
-
-function keyStats(stats: FakeStat[]): string {
-  const want = ['Shots on Goal', 'Ball Possession', 'expected_goals', 'Corner Kicks',
-                'Yellow Cards', 'Rebounds', 'Assists', 'Field Goals %'];
-  const labelMap: Record<string, string> = { 'expected_goals': 'xG' };
-  const lines: string[] = [];
-  for (const name of want) {
-    const s = stats.find(x => x.strStat.toLowerCase() === name.toLowerCase());
-    if (s) lines.push(`${labelMap[s.strStat] ?? s.strStat}: ${s.intHome}–${s.intAway}`);
-  }
-  return lines.join(' | ');
-}
 
 function formatFulltimeMessage(
   pick: PickRecord,
@@ -96,7 +36,7 @@ function formatFulltimeMessage(
   stats: FakeStat[],
   narrative: string
 ): string {
-  const statsLine  = keyStats(stats);
+  const statsLine  = buildInlineKeyStats(stats);
   const emoji      = outcome === 'win' ? '✅' : outcome === 'loss' ? '❌' : '↩️';
   const resultLabel =
     outcome === 'win' ? 'ΒΓΗΚΕ ΤΟ ΤΙΡ' :
@@ -137,7 +77,7 @@ function scenarioScore(
   finalPick: string,
   league: string
 ): { home: number; away: number } {
-  const bball = isBasketball(league);
+  const bball = isBasketballLeague(league);
   const line = extractLine(finalPick);
 
   if (bball) {
@@ -186,7 +126,7 @@ function scenarioScore(
 // ─── Single scenario runner ───────────────────────────────────────────────────
 
 async function runScenario(pick: PickRecord, scenario: Scenario): Promise<void> {
-  const bball = isBasketball(pick.league);
+  const bball = isBasketballLeague(pick.league);
   const { home, away } = scenarioScore(scenario, pick.bestBettingMarket, pick.finalPick, pick.league);
   const stats = bball ? randomBasketballStats() : randomFootballStats();
 

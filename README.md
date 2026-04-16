@@ -719,7 +719,6 @@ Behavior:
 | --- | --- |
 | `logs/combined.log` | Main structured runtime log |
 | `logs/error.log` | Error-only log |
-| `logs/picks.log` | Audit-style log for published picks |
 
 Every successful OpenAI response also writes an `openai-usage` line into the normal application logs with the exact API-reported `input_tokens`, `output_tokens`, and `total_tokens` for that call.
 
@@ -731,7 +730,6 @@ Every successful OpenAI response also writes an `openai-usage` line into the nor
 - Post-publication live updates are only scheduled for fixtures that were actually published.
 - Restart recovery rebuilds pending halftime and full-time watcher timers for published picks that are still inside their polling windows.
 - Historical results are persisted for reporting and recovery, not for automatic self-learning.
-- There is a `1.5s` pause between pre-match posts to reduce Telegram rate-limit pressure.
 
 ## Current limitations
 

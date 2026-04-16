@@ -1,4 +1,4 @@
-import type { Fixture, MatchData } from '../types';
+import type { MatchData } from '../types';
 
 // ─── System prompts ───────────────────────────────────────────────────────────
 

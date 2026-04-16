@@ -1,19 +1,3 @@
-/**
- * Returns today's date as YYYY-MM-DD in UTC.
- */
-export function todayUtc(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-/**
- * Returns tomorrow's date as YYYY-MM-DD in UTC.
- */
-export function tomorrowUtc(): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
-
 function getDatePartsInTimeZone(date: Date, timeZone: string): { year: number; month: number; day: number } {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone,

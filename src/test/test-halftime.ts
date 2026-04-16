@@ -13,102 +13,15 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import 'dotenv/config';
-import fs from 'fs';
-import path from 'path';
 import { logger } from '../utils/logger';
+import { buildInlineKeyStats } from '../utils/commentary';
 import { generateHalftimeNarrative } from '../halftime/narrator';
 import { sendToGroup } from '../bot/telegram';
 import { loadTestPick } from './load-test-pick';
+import { isBasketballLeague, randomBasketballStats, randomFootballStats, type FakeStat } from './support';
 import type { PickRecord } from '../types';
 
-const CHECKPOINT_BASE = path.resolve('./data/checkpoints');
-
-function rand(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function isBasketball(league: string): boolean {
-  return (
-    league.toLowerCase().includes('euroleague') ||
-    league.toLowerCase().includes('nba') ||
-    league.toLowerCase().includes('basketball') ||
-    league.toLowerCase().includes('euroliga')
-  );
-}
-
-// ─── Random halftime score ────────────────────────────────────────────────────
-
-function randomHalftimeScore(market: string, league: string): { home: number; away: number } {
-  const bball = isBasketball(league);
-
-  if (bball) {
-    // Basketball: typical first half scores 40–60 each side
-    return { home: rand(38, 62), away: rand(38, 62) };
-  }
-
-  // Football: typical HT scores 0–2 each
-  switch (market) {
-    case 'h2h/home':
-      return { home: rand(1, 2), away: rand(0, 1) };
-    case 'h2h/away':
-      return { home: rand(0, 1), away: rand(1, 2) };
-    case 'h2h/draw':
-      return { home: rand(0, 1), away: rand(0, 1) };
-    case 'totals/over':
-      return { home: rand(1, 2), away: rand(1, 2) };
-    case 'totals/under':
-      return { home: rand(0, 1), away: rand(0, 1) };
-    default:
-      return { home: rand(0, 1), away: rand(0, 1) };
-  }
-}
-
-// ─── Random halftime stats ────────────────────────────────────────────────────
-
-interface FakeStat { strStat: string; intHome: string; intAway: string }
-
-function randomFootballStats(): FakeStat[] {
-  const homePoss = rand(38, 65);
-  return [
-    { strStat: 'Shots on Goal',      intHome: String(rand(2, 8)),       intAway: String(rand(1, 6)) },
-    { strStat: 'Shots off Goal',     intHome: String(rand(1, 5)),       intAway: String(rand(1, 4)) },
-    { strStat: 'Total Shots',        intHome: String(rand(5, 14)),      intAway: String(rand(3, 10)) },
-    { strStat: 'Ball Possession',    intHome: String(homePoss),         intAway: String(100 - homePoss) },
-    { strStat: 'Corner Kicks',       intHome: String(rand(1, 6)),       intAway: String(rand(0, 4)) },
-    { strStat: 'Fouls',              intHome: String(rand(3, 9)),       intAway: String(rand(3, 9)) },
-    { strStat: 'Yellow Cards',       intHome: String(rand(0, 2)),       intAway: String(rand(0, 2)) },
-    { strStat: 'Offsides',           intHome: String(rand(0, 3)),       intAway: String(rand(0, 3)) },
-    { strStat: 'Goalkeeper Saves',   intHome: String(rand(1, 4)),       intAway: String(rand(1, 5)) },
-    { strStat: 'expected_goals',     intHome: String(rand(0, 2)),       intAway: String(rand(0, 2)) },
-  ];
-}
-
-function randomBasketballStats(): FakeStat[] {
-  return [
-    { strStat: 'Field Goals %',      intHome: String(rand(40, 58)),     intAway: String(rand(38, 55)) },
-    { strStat: '3 Points %',         intHome: String(rand(28, 45)),     intAway: String(rand(25, 43)) },
-    { strStat: 'Free Throws %',      intHome: String(rand(65, 90)),     intAway: String(rand(60, 88)) },
-    { strStat: 'Rebounds',           intHome: String(rand(15, 28)),     intAway: String(rand(14, 26)) },
-    { strStat: 'Assists',            intHome: String(rand(6, 14)),      intAway: String(rand(5, 13)) },
-    { strStat: 'Turnovers',          intHome: String(rand(3, 10)),      intAway: String(rand(3, 10)) },
-    { strStat: 'Steals',             intHome: String(rand(2, 7)),       intAway: String(rand(2, 7)) },
-    { strStat: 'Blocks',             intHome: String(rand(1, 5)),       intAway: String(rand(1, 5)) },
-  ];
-}
-
 // ─── Format message (mirrors watcher.ts) ─────────────────────────────────────
-
-function keyStats(stats: FakeStat[]): string {
-  const want = ['Shots on Goal', 'Ball Possession', 'expected_goals', 'Corner Kicks',
-                'Yellow Cards', 'Rebounds', 'Assists', 'Field Goals %'];
-  const labelMap: Record<string, string> = { 'expected_goals': 'xG' };
-  const lines: string[] = [];
-  for (const name of want) {
-    const s = stats.find(x => x.strStat.toLowerCase() === name.toLowerCase());
-    if (s) lines.push(`${labelMap[s.strStat] ?? s.strStat}: ${s.intHome}–${s.intAway}`);
-  }
-  return lines.join(' | ');
-}
 
 function formatHalftimeMessage(
   pick: PickRecord,
@@ -117,7 +30,7 @@ function formatHalftimeMessage(
   stats: FakeStat[],
   narrative: string
 ): string {
-  const statsLine = keyStats(stats);
+  const statsLine = buildInlineKeyStats(stats);
   return (
     `⏱️ <b>Ενημέρωση Ημιχρόνου</b>\n\n` +
     `🏟️ <b>${pick.homeTeam} vs ${pick.awayTeam}</b>\n` +
@@ -142,7 +55,7 @@ function scenarioScore(
   market: string,
   league: string
 ): { home: number; away: number } {
-  const bball = isBasketball(league);
+  const bball = isBasketballLeague(league);
 
   if (bball) {
     const lineMatch = /(\d+(?:\.\d+)?)/.exec(market === 'totals/over' || market === 'totals/under' ? market : '');
@@ -197,7 +110,7 @@ function scenarioScore(
 // ─── Single scenario runner ───────────────────────────────────────────────────
 
 async function runScenario(pick: PickRecord, scenario: Scenario): Promise<void> {
-  const bball = isBasketball(pick.league);
+  const bball = isBasketballLeague(pick.league);
   const { home, away } = scenarioScore(scenario, pick.bestBettingMarket, pick.league);
   const stats = bball ? randomBasketballStats() : randomFootballStats();
 

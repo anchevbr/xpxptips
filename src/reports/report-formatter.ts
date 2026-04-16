@@ -113,7 +113,6 @@ function renderPickLines(picks: PickRecord[]): string {
 function renderStats(picks: PickRecord[]): string {
   const resolved = picks.filter(p => p.outcome !== null && p.outcome !== 'void');
   const wins = resolved.filter(p => p.outcome === 'win').length;
-  const losses = resolved.filter(p => p.outcome === 'loss').length;
   const total = resolved.length;
   const pct = total > 0 ? ((wins / total) * 100).toFixed(1) : '0.0';
   const voids = picks.filter(p => p.outcome === 'void').length;

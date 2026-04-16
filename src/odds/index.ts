@@ -111,10 +111,6 @@ export function extractBestOdds(
   return odds;
 }
 
-export function normalizeMarket(market: string): string {
-  return market.toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
 function parseMarketString(
   market: string,
   fixture: Fixture

@@ -13,12 +13,9 @@ import { addPick } from '../reports/picks-store';
 import { scheduleHalftimeWatch } from '../halftime';
 import { scheduleFulltimeWatch } from '../fulltime';
 import { prewarmApiSportsBinding } from '../sports/providers/api-sports-live';
-import { logger, picksLogger } from '../utils/logger';
-import { sleep } from '../utils/retry';
+import { logger } from '../utils/logger';
 import type { AnalysisResult } from '../ai-analysis';
 import type { PickRecord } from '../types';
-
-const POST_DELAY_MS = 1_500; // pause between messages to avoid Telegram rate limits
 
 /**
  * Publishes a single approved tip to the Telegram group.
@@ -63,16 +60,18 @@ export async function publishSingleResult(
     // Persist to picks-log for weekly/monthly reports
     addPick(savedPick);
 
+    // Best-effort binding so live polling and result resolution can reuse the
+    // provider's native fixture id even if it was missing on the original pick.
     if (!savedPick.liveDataProvider || !savedPick.liveDataFixtureId) {
       try {
-      const binding = await prewarmApiSportsBinding(savedPick);
-      if (binding) {
-        savedPick.liveDataProvider = binding.provider;
-        savedPick.liveDataFixtureId = binding.liveDataFixtureId;
-        logger.info(
-          `[publisher] live-data binding: ${savedPick.fixtureId} -> ${binding.provider}:${binding.liveDataFixtureId}`
-        );
-      }
+        const binding = await prewarmApiSportsBinding(savedPick);
+        if (binding) {
+          savedPick.liveDataProvider = binding.provider;
+          savedPick.liveDataFixtureId = binding.liveDataFixtureId;
+          logger.info(
+            `[publisher] live-data binding: ${savedPick.fixtureId} -> ${binding.provider}:${binding.liveDataFixtureId}`
+          );
+        }
       } catch (err) {
         logger.warn(`[publisher] live-data binding failed for ${savedPick.fixtureId}: ${String(err)}`);
       }

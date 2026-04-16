@@ -6,33 +6,14 @@
 // users whether to stay in or consider withdrawing the bet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { config } from '../config';
-import { logger } from '../utils/logger';
-import { createOpenAIClient } from '../utils/openai-client';
-import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
 import { assessHalftimeTipState, halftimeStatusLabel } from './tip-state';
-import { sanitizeCommentaryText } from '../utils/commentary';
+import {
+  formatCommentaryLineupBlock,
+  formatCommentaryStatsBlock,
+  runCommentaryPrompt,
+} from '../utils/commentary';
 import type { PickRecord } from '../types';
 import type { EventStat, LineupPlayer } from './stats-fetcher';
-
-const openai = createOpenAIClient();
-
-/** Formats team stats into a readable table for the prompt */
-function formatStatsBlock(stats: EventStat[]): string {
-  if (stats.length === 0) return 'Δεν υπάρχουν διαθέσιμα στατιστικά.';
-  return stats
-    .map(s => `  ${s.strStat}: ${s.intHome} – ${s.intAway} (γηπεδούχοι – φιλοξενούμενοι)`)
-    .join('\n');
-}
-
-/** Formats lineup into a compact string per team */
-function formatLineupBlock(lineup: LineupPlayer[], homeTeam: string, awayTeam: string): string {
-  if (lineup.length === 0) return '';
-  const starters = lineup.filter(p => p.strSubstitute === 'No');
-  const homePlayers = starters.filter(p => p.strHome === 'Yes').map(p => p.strPlayer).join(', ');
-  const awayPlayers = starters.filter(p => p.strHome === 'No').map(p => p.strPlayer).join(', ');
-  return `Ενδεκάδα ${homeTeam}: ${homePlayers}\nΕνδεκάδα ${awayTeam}: ${awayPlayers}`;
-}
 
 /**
  * Generates a Greek halftime commentary using GPT + web search.
@@ -54,14 +35,13 @@ export async function generateHalftimeNarrative(
   stats: EventStat[],
   lineup: LineupPlayer[] = []
 ): Promise<string> {
-  const model = config.openai.commentaryModel;
   const scoreStr =
     homeScore !== null && awayScore !== null ? `${homeScore}–${awayScore}` : 'Άγνωστο';
   const halftimeState = assessHalftimeTipState(pick, homeScore, awayScore);
   const preMatchReasoning = pick.preMatchReasoning?.trim() || 'Δεν διασώθηκε η αρχική prematch λογική μας.';
 
-  const statsBlock = formatStatsBlock(stats);
-  const lineupBlock = formatLineupBlock(lineup, pick.homeTeam, pick.awayTeam);
+  const statsBlock = formatCommentaryStatsBlock(stats);
+  const lineupBlock = formatCommentaryLineupBlock(lineup, pick.homeTeam, pick.awayTeam);
 
   const matchDate = pick.date; // YYYY-MM-DD
   const stateInstruction =
@@ -99,31 +79,17 @@ export async function generateHalftimeNarrative(
     `3. ΑΝ η πρόταση είναι ήδη χαμένη: πες ξεκάθαρα τον λόγο και σταμάτα εκεί. Όχι future outlook.\n` +
     `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links, domains ή παραπομπές σε πηγές.`;
 
-  try {
-    const resp = await runResponseWithActivityLogging({
-      client: openai,
-      scope: 'halftime-commentary',
-      model,
-      timeoutMs: config.openai.timeoutMs,
-      usageMeta: {
-        fixtureId: pick.fixtureId,
-        homeTeam: pick.homeTeam,
-        awayTeam: pick.awayTeam,
-        league: pick.league,
-      },
-      params: {
-        model,
-        input: prompt,
-        reasoning: { effort: config.openai.commentaryEffort },
-        tools: [{ type: 'web_search_preview' }],
-      } as Parameters<typeof openai.responses.stream>[0],
-    });
-
-    const raw = extractResponseOutputText(resp);
-    const text = sanitizeCommentaryText(raw);
-    return text || 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος.';
-  } catch (err) {
-    logger.warn(`[halftime-narrator] GPT call failed: ${String(err)}`);
-    return 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος λόγω τεχνικού προβλήματος.';
-  }
+  return runCommentaryPrompt({
+    scope: 'halftime-commentary',
+    logLabel: 'halftime-narrator',
+    prompt,
+    usageMeta: {
+      fixtureId: pick.fixtureId,
+      homeTeam: pick.homeTeam,
+      awayTeam: pick.awayTeam,
+      league: pick.league,
+    },
+    emptyFallbackText: 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος.',
+    errorFallbackText: 'Σχολιασμός ημιχρόνου δεν ήταν διαθέσιμος λόγω τεχνικού προβλήματος.',
+  });
 }

@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { logger } from '../utils/logger';
+import { buildInlineKeyStats } from '../utils/commentary';
 import { sendToGroup } from '../bot/telegram';
 import { getPickByFixtureId, updateHalftimeNotified } from '../reports/picks-store';
 import { fetchLiveStatus, fetchEventStats, fetchEventLineup, isHalftime } from './stats-fetcher';
@@ -19,24 +20,6 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes between each poll attempt
 const MAX_ATTEMPTS     = 6;              // up to 60 minutes of polling
 const START_DELAY_MS   = 40 * 60 * 1000;
 const RECOVERY_WINDOW_MS = START_DELAY_MS + (MAX_ATTEMPTS - 1) * POLL_INTERVAL_MS;
-
-/** Picks the most relevant stats to show inline in the Telegram message */
-function keyStats(stats: Array<{ strStat: string; intHome: string; intAway: string }>): string {
-  const want = [
-    'Shots on Goal',
-    'Ball Possession',
-    'expected_goals',
-    'Corner Kicks',
-    'Yellow Cards',
-  ];
-  const lines: string[] = [];
-  const labelMap: Record<string, string> = { 'expected_goals': 'xG' };
-  for (const name of want) {
-    const s = stats.find(x => x.strStat.toLowerCase() === name.toLowerCase());
-    if (s) lines.push(`${labelMap[s.strStat] ?? s.strStat}: ${s.intHome}–${s.intAway}`);
-  }
-  return lines.join(' | ');
-}
 
 /** Formats the Telegram halftime update message (HTML) */
 function formatHalftimeMessage(
@@ -51,7 +34,7 @@ function formatHalftimeMessage(
       ? `${homeScore}–${awayScore}`
       : '?–?';
 
-  const statsLine = keyStats(stats);
+  const statsLine = buildInlineKeyStats(stats);
   const halftimeState = assessHalftimeTipState(pick, homeScore, awayScore);
   const header =
     halftimeState === 'lost'

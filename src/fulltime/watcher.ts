@@ -8,6 +8,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { logger } from '../utils/logger';
+import { buildInlineKeyStats } from '../utils/commentary';
 import { sendToGroup } from '../bot/telegram';
 import { getPickByFixtureId, updateFulltimeNotified, updateOutcome } from '../reports/picks-store';
 import {
@@ -24,28 +25,6 @@ const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes between polls
 const MAX_ATTEMPTS     = 12;             // up to 120 minutes of polling after start delay
 const START_DELAY_MS   = 85 * 60 * 1000;
 const RECOVERY_WINDOW_MS = START_DELAY_MS + (MAX_ATTEMPTS - 1) * POLL_INTERVAL_MS;
-
-/** Stats shown inline in the FT Telegram message */
-function keyStats(stats: Array<{ strStat: string; intHome: string; intAway: string }>): string {
-  const want = [
-    'Shots on Goal',
-    'Ball Possession',
-    'expected_goals',
-    'Corner Kicks',
-    'Yellow Cards',
-    // Basketball keys
-    'Rebounds',
-    'Assists',
-    'Field Goals %',
-  ];
-  const labelMap: Record<string, string> = { 'expected_goals': 'xG' };
-  const lines: string[] = [];
-  for (const name of want) {
-    const s = stats.find(x => x.strStat.toLowerCase() === name.toLowerCase());
-    if (s) lines.push(`${labelMap[s.strStat] ?? s.strStat}: ${s.intHome}–${s.intAway}`);
-  }
-  return lines.join(' | ');
-}
 
 function outcomeEmoji(outcome: 'win' | 'loss' | 'push'): string {
   if (outcome === 'win') return '✅💸🔥';
@@ -67,7 +46,7 @@ function formatFulltimeMessage(
       ? `${homeScore}–${awayScore}`
       : '?–?';
 
-  const statsLine = keyStats(stats);
+  const statsLine = buildInlineKeyStats(stats);
   const emoji     = outcomeEmoji(outcome);
   const header =
     outcome === 'win'

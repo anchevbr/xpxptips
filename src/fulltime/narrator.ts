@@ -6,30 +6,13 @@
 // If the tip lost: explains why with the stats/events that prevented the win.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { config } from '../config';
-import { logger } from '../utils/logger';
-import { createOpenAIClient } from '../utils/openai-client';
-import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
-import { sanitizeCommentaryText } from '../utils/commentary';
+import {
+  formatCommentaryLineupBlock,
+  formatCommentaryStatsBlock,
+  runCommentaryPrompt,
+} from '../utils/commentary';
 import type { PickRecord } from '../types';
 import type { EventStat, LineupPlayer } from '../halftime/stats-fetcher';
-
-const openai = createOpenAIClient();
-
-function formatStatsBlock(stats: EventStat[]): string {
-  if (stats.length === 0) return 'Δεν υπάρχουν διαθέσιμα στατιστικά.';
-  return stats
-    .map(s => `  ${s.strStat}: ${s.intHome} – ${s.intAway} (γηπεδούχοι – φιλοξενούμενοι)`)
-    .join('\n');
-}
-
-function formatLineupBlock(lineup: LineupPlayer[], homeTeam: string, awayTeam: string): string {
-  if (lineup.length === 0) return '';
-  const starters = lineup.filter(p => p.strSubstitute === 'No');
-  const homePlayers = starters.filter(p => p.strHome === 'Yes').map(p => p.strPlayer).join(', ');
-  const awayPlayers = starters.filter(p => p.strHome === 'No').map(p => p.strPlayer).join(', ');
-  return `Ενδεκάδα ${homeTeam}: ${homePlayers}\nΕνδεκάδα ${awayTeam}: ${awayPlayers}`;
-}
 
 /**
  * Generates a Greek full-time commentary using GPT + web search.
@@ -49,13 +32,12 @@ export async function generateFulltimeNarrative(
   stats: EventStat[],
   lineup: LineupPlayer[] = []
 ): Promise<string> {
-  const model = config.openai.commentaryModel;
   const scoreStr =
     homeScore !== null && awayScore !== null ? `${homeScore}–${awayScore}` : 'Άγνωστο';
   const preMatchReasoning = pick.preMatchReasoning?.trim() || 'Δεν διασώθηκε η αρχική prematch λογική μας.';
 
-  const statsBlock = formatStatsBlock(stats);
-  const lineupBlock = formatLineupBlock(lineup, pick.homeTeam, pick.awayTeam);
+  const statsBlock = formatCommentaryStatsBlock(stats);
+  const lineupBlock = formatCommentaryLineupBlock(lineup, pick.homeTeam, pick.awayTeam);
 
   const matchDate = pick.date;
 
@@ -90,32 +72,18 @@ export async function generateFulltimeNarrative(
     `Γράψε ακριβώς 3–4 προτάσεις στα ελληνικά. ${outcomeInstruction}\n` +
     `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links, domains ή παραπομπές σε πηγές.`;
 
-  try {
-    const resp = await runResponseWithActivityLogging({
-      client: openai,
-      scope: 'fulltime-commentary',
-      model,
-      timeoutMs: config.openai.timeoutMs,
-      usageMeta: {
-        fixtureId: pick.fixtureId,
-        homeTeam: pick.homeTeam,
-        awayTeam: pick.awayTeam,
-        league: pick.league,
-        outcome,
-      },
-      params: {
-        model,
-        input: prompt,
-        reasoning: { effort: config.openai.commentaryEffort },
-        tools: [{ type: 'web_search_preview' }],
-      } as Parameters<typeof openai.responses.stream>[0],
-    });
-
-    const raw = extractResponseOutputText(resp);
-    const text = sanitizeCommentaryText(raw);
-    return text || 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος.';
-  } catch (err) {
-    logger.warn(`[fulltime-narrator] GPT call failed: ${String(err)}`);
-    return 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος λόγω τεχνικού προβλήματος.';
-  }
+  return runCommentaryPrompt({
+    scope: 'fulltime-commentary',
+    logLabel: 'fulltime-narrator',
+    prompt,
+    usageMeta: {
+      fixtureId: pick.fixtureId,
+      homeTeam: pick.homeTeam,
+      awayTeam: pick.awayTeam,
+      league: pick.league,
+      outcome,
+    },
+    emptyFallbackText: 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος.',
+    errorFallbackText: 'Σχολιασμός τελικού αποτελέσματος δεν ήταν διαθέσιμος λόγω τεχνικού προβλήματος.',
+  });
 }

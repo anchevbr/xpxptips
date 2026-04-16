@@ -12,7 +12,9 @@
 //          (those are covered by the same day's weekly report, no duplication)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { config } from '../config';
 import { logger } from '../utils/logger';
+import { dateOffsetInTimeZone, todayInTimeZone } from '../utils/date';
 import { sendAndPinInGroup } from '../bot/telegram';
 import { getPicksInRange, updateOutcome } from './picks-store';
 import { fetchEventResult } from './result-fetcher';
@@ -23,22 +25,7 @@ import type { PickRecord } from '../types';
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
-/** Returns YYYY-MM-DD in Athens timezone for a given offset from today */
-function athensDateOffset(offsetDays: number): string {
-  const d = new Date();
-  d.setUTCHours(d.getUTCHours() + 3); // Athens = UTC+3 (rough — good enough for date calc)
-  d.setUTCDate(d.getUTCDate() + offsetDays);
-  return d.toISOString().slice(0, 10);
-}
-
-function athensToday(): string {
-  return athensDateOffset(0);
-}
-
-/** Returns YYYY-MM-DD for N days before today */
-function athensDaysAgo(n: number): string {
-  return athensDateOffset(-n);
-}
+const REPORT_TIMEZONE = config.scheduler.timezone;
 
 /** First day of a given month as YYYY-MM-DD */
 function firstDayOfMonth(yyyy: number, mm: number): string {
@@ -51,9 +38,9 @@ function lastDayOfMonth(yyyy: number, mm: number): string {
   return `${yyyy}-${String(mm).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Returns true if today (in Athens time) is the first Monday of the calendar month */
+/** Returns true if today in the scheduler time zone is the first Monday of the calendar month. */
 export function isFirstMondayOfMonth(): boolean {
-  const today = athensToday();
+  const today = todayInTimeZone(REPORT_TIMEZONE);
   const d = new Date(today + 'T12:00:00Z');
   if (d.getDay() !== 1) return false; // not a Monday
   return d.getDate() <= 7; // first 7 days of month = first Monday
@@ -108,7 +95,7 @@ async function resolvePickOutcomes(picks: PickRecord[]): Promise<PickRecord[]> {
  *                  When provided, treats that date as "today" for range calculation.
  */
 export async function runWeeklyReport(asOfDate?: string): Promise<void> {
-  const today = asOfDate ?? athensToday();
+  const today = asOfDate ?? todayInTimeZone(REPORT_TIMEZONE);
   const todayDate = new Date(today + 'T12:00:00Z');
   const weekTo = new Date(todayDate);
   weekTo.setUTCDate(weekTo.getUTCDate() - 1);
@@ -149,7 +136,7 @@ export async function runWeeklyReport(asOfDate?: string): Promise<void> {
  * Only called on the first Monday of a new month.
  */
 export async function runMonthlyReport(): Promise<void> {
-  const today = athensToday();
+  const today = todayInTimeZone(REPORT_TIMEZONE);
   const d = new Date(today + 'T12:00:00Z');
 
   // Previous month
@@ -158,7 +145,7 @@ export async function runMonthlyReport(): Promise<void> {
 
   // Monthly window: first day of prev month → 8 days ago (day before weekly window starts)
   const monthFrom = firstDayOfMonth(prevYear, prevMonth);
-  const monthTo = athensDaysAgo(8); // day before the weekly window (which starts 7 days ago)
+  const monthTo = dateOffsetInTimeZone(REPORT_TIMEZONE, -8); // day before the weekly window (which starts 7 days ago)
 
   // Safety: monthTo must not exceed last day of previous month
   const lastOfPrevMonth = lastDayOfMonth(prevYear, prevMonth);

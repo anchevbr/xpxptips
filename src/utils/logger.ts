@@ -39,19 +39,3 @@ export const logger = winston.createLogger({
     createTelegramLogTransport(),
   ],
 });
-
-/**
- * Append-only audit log for every pick that is published to the Telegram group.
- * Written as newline-delimited JSON to logs/picks.log for ROI tracking and
- * prompt-tuning analysis.
- */
-export const picksLogger = winston.createLogger({
-  level: 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.File({ filename: 'logs/picks.log' }),
-  ],
-});

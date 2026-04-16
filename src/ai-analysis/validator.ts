@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import type { BettingAnalysis, Fixture, MatchData } from '../types';
+import type { BettingAnalysis, MatchData } from '../types';
 
 /**
  * Validates and sanitizes the raw object returned by the model before it

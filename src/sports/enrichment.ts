@@ -1,21 +1,7 @@
 import { logger } from '../utils/logger';
 import { enrichFromApiSports } from './providers/api-sports-enrichment';
 import { fetchOddsForFixture, getAverageOdds, getMostCommonTotalsLine } from './providers/odds-api';
-import type { Fixture, MatchData, TeamStats, InjuryReport, ScheduleContext } from '../types';
-
-const emptyStats = (team: string): TeamStats => ({
-  team,
-  lastFiveGames: [],
-  homeRecord: { wins: 0, losses: 0 },
-  awayRecord: { wins: 0, losses: 0 },
-});
-
-const emptyInjury = (team: string): InjuryReport => ({
-  team,
-  players: [],
-  suspensions: [],
-  lastUpdated: new Date().toISOString(),
-});
+import type { Fixture, MatchData, ScheduleContext } from '../types';
 
 const emptySchedule: ScheduleContext = {
   homeBackToBack: false,
@@ -70,8 +56,6 @@ export async function enrichFixture(fixture: Fixture): Promise<MatchData> {
   } catch (err) {
     logger.warn(`[enrichment] failed to fetch odds: ${String(err)}`);
   }
-
-  const hasRealData = !!providerEnrichment.structuredContext;
 
   return {
     fixture,
