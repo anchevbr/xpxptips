@@ -1,6 +1,8 @@
 # AI Betting Bot
 
-AI Betting Bot is a broadcast-only Telegram bot for football and basketball picks. It does not chat with users, answer commands, or act like an assistant inside the group. Its job is to run a structured betting-analysis pipeline, publish only the picks that pass hard gates, and then follow those picks with live halftime and full-time updates plus pinned weekly and monthly reports.
+AI Betting Bot is a broadcast-only Telegram bot for football and basketball picks inside the configured group chat. It does not act like a conversational assistant in the group. Its job is to run a structured betting-analysis pipeline, publish only the picks that pass hard gates, and then follow those picks with live halftime and full-time updates plus pinned weekly and monthly reports.
+
+Outside the group flow, the bot also supports a minimal private-operator path: `/start` and `/logs` in a private chat only manage runtime log subscriptions for the operator.
 
 This repository is built around three ideas:
 
@@ -11,14 +13,18 @@ This repository is built around three ideas:
 ## Current feature set
 
 - Pre-match tip generation for football and basketball fixtures.
+- Timezone-aware daily planning for the current calendar day in `TIMEZONE` (default `0 6 * * *` in `Europe/Athens`).
 - Direct expert analysis for every fetched fixture, followed by hard publication gates.
+- OpenAI live-context fetch with web search, activity logging, and retry/backoff for transient failures.
 - Real bookmaker market validation before a tip can be published.
 - Broadcast-only Telegram posting with HTML formatting and disabled link previews.
-- Automatic halftime updates for each published fixture.
-- Automatic full-time updates for each published fixture.
+- Reply-chained halftime updates for each published fixture.
+- Reply-chained full-time updates for each published fixture.
 - Weekly report posting every Monday.
 - Monthly report posting on the first Monday of each month.
 - Pinning for weekly/monthly reports.
+- Private Telegram runtime log forwarding for the operator.
+- Long-lived historical picks log with outcome resolution for reports and recovery.
 - Checkpoint-based crash recovery for fixture discovery and expert analysis.
 - Manual test entry scripts under `src/test/` for end-to-end and feature-specific validation.
 
@@ -89,16 +95,19 @@ src/
 
 `src/index.ts` loads configuration, launches the Telegram bot in long-polling mode, and starts the scheduler.
 
-The Telegram client is intentionally minimal:
+The Telegram client is intentionally minimal in the group chat:
 
-- no commands are registered,
-- no replies are sent to users,
-- all send operations go to the configured group chat,
+- no group commands are registered,
+- group messages are not answered,
+- normal send operations go to the configured group chat,
+- private `/start` and `/logs` commands exist only for operator log subscription and status,
 - reports can be pinned through `sendAndPinInGroup()`.
 
 ### 2. Planning job
 
 The planning job runs on `PLANNING_CRON` in `TIMEZONE`.
+
+The current default config is `0 6 * * *` in `Europe/Athens`.
 
 Its job is to:
 
@@ -139,6 +148,7 @@ Pipeline behavior:
 - every fixture is enriched with provider data before expert reasoning,
 - expert analysis runs for every fetched fixture unless an analysis checkpoint already exists,
 - low-quality or unsupported fixtures are filtered later by the publication gates rather than by a prefilter,
+- historical pick performance is not fed back into this stage automatically,
 - `FORCE_ANALYSIS=true` can bypass the scheduled-status and odds-market gates for testing.
 
 ### 5. Enrichment and odds loading
@@ -160,6 +170,11 @@ The enrichment layer also computes an `availableOdds` block that includes:
 ### 6. Expert analysis phase
 
 The second AI pass produces the actual betting recommendation.
+
+Operationally, expert analysis is split into two OpenAI phases:
+
+- a live-context web-search pass that gathers current form, injuries, tactical and motivation context,
+- the final structured JSON analysis pass that decides whether a pick is publishable.
 
 The expert phase returns:
 
@@ -191,12 +206,19 @@ When a fixture passes all gates:
 
 - the message is formatted in Greek,
 - available odds are fetched and appended when possible,
-- the tip is sent to the configured Telegram group,
+- the tip is sent to the configured Telegram group as a standalone message,
 - the dedup store is updated,
 - the pick is persisted to `data/picks-log.json` together with kickoff time,
 - halftime and full-time watchers are scheduled immediately.
 
 Pre-match tips are not pinned. Weekly and monthly reports are pinned.
+
+Reply behavior is intentional:
+
+- pre-match tip: standalone group post,
+- halftime update: replies to the original pre-match tip,
+- full-time update: replies to the halftime update when one exists, otherwise to the original pre-match tip,
+- weekly and monthly reports: standalone pinned posts, not replies.
 
 ### 9. Halftime updates
 
@@ -271,6 +293,26 @@ Monthly report:
 - avoids duplicating the same window already covered by the weekly report,
 - also posts pinned.
 
+### 12. Historical record and learning
+
+The bot keeps a long-lived historical record of published picks and resolved outcomes, but that history is not currently used as an automatic self-learning loop.
+
+What the bot does use history for:
+
+- weekly and monthly reporting,
+- full-time result resolution and post-match bookkeeping,
+- rebuilding halftime/full-time watchers after restart,
+- operational audit of what was posted, when, and with what confidence.
+
+What the bot does not do today:
+
+- automatic threshold recalibration from past win/loss rate,
+- automatic prompt rewriting from historical performance,
+- automatic league or market weighting based on past outcomes,
+- model fine-tuning or retraining from `data/picks-log.json`.
+
+Any improvement in pick quality is therefore manual at the moment: code changes, prompt updates, config tuning, or provider improvements.
+
 ## Providers and external dependencies
 
 ### OpenAI
@@ -286,6 +328,13 @@ Current model usage in the codebase:
 | Report narratives | `gpt-5.4` |
 
 The model is used for reasoning and explanation. Fixtures, live statuses, stats, and odds come from provider APIs.
+
+Additional runtime behavior:
+
+- live-context and report web-search calls are executed through the Responses API streaming path,
+- web-search activity and reasoning summaries are logged while the call is in flight,
+- transient OpenAI failures such as rate limits and timeouts are retried with backoff,
+- `openai-usage` lines are written for successful calls so token usage can be audited from logs.
 
 ### API-Sports
 
@@ -319,7 +368,7 @@ The bot can also forward runtime logs to a private Telegram chat for operator mo
 - send `/logs status` to check whether the current private chat is subscribed,
 - send `/logs off` to stop personal log delivery.
 
-The forwarder batches messages and is intended for operational visibility without opening the VPS.
+The forwarder batches messages, filters out noisy low-signal lines, and is intended for operational visibility without opening the VPS.
 
 ### The Odds API
 
@@ -368,11 +417,14 @@ The Telegram layer is intentionally simple and deterministic:
 
 - HTML parse mode is enabled.
 - Link previews are disabled.
-- The bot runs in broadcast-only mode.
-- No chat commands are handled.
-- No user messages are answered.
+- The group chat path runs in broadcast-only mode.
+- Group messages are not answered.
+- Private `/start` and `/logs` commands are handled only for operator log subscriptions.
 - Reports use `sendAndPinInGroup()`.
-- Normal tips, halftime updates, and full-time updates use `sendToGroup()`.
+- Pre-match tips are standalone messages sent with `sendToGroup()`.
+- Halftime updates reply to the original tip message.
+- Full-time updates reply to the halftime message when available, otherwise to the original tip.
+- Reports are pinned but do not reply to another message.
 
 The pre-match formatter includes:
 
@@ -415,12 +467,25 @@ Each record stores:
 - kickoff time,
 - posted pick and market token,
 - confidence,
+- short pre-match reasoning,
+- Telegram message ids for tip / halftime / full-time posts,
+- live-data provider binding for later polling and result resolution,
 - resolved outcome,
 - actual score,
 - `halfTimeNotifiedAt`,
 - `fullTimeNotifiedAt`.
 
 This file is the base for weekly and monthly reporting.
+
+### Telegram log subscriber store
+
+`data/telegram-log-subscribers.json` stores private chat ids that subscribed to runtime log delivery.
+
+Important operational detail:
+
+- this file is separate from picks and checkpoints,
+- a `--reset-data` deploy clears checkpoints, picks log, and dedup state,
+- it does not delete Telegram log subscriptions.
 
 ### Dedup store
 
@@ -558,6 +623,14 @@ What the deploy script does:
 7. restarts the configured PM2 app,
 8. runs a lightweight API-Sports smoke check unless skipped.
 
+`--reset-data` additionally removes:
+
+- `data/checkpoints/`,
+- `data/picks-log.json`,
+- `data/posted.json`.
+
+It does not remove `data/telegram-log-subscribers.json`.
+
 ## Manual test scripts
 
 All manual test entry points now live under `src/test/`.
@@ -638,6 +711,7 @@ Behavior:
 | `data/checkpoints/` | Resume state for fixtures and expert analysis |
 | `data/picks-log.json` | Published picks plus resolved live/report metadata |
 | `data/posted.json` | Dedup store in normal usage |
+| `data/telegram-log-subscribers.json` | Private operator chat subscriptions for runtime log forwarding |
 
 ### Log files
 
@@ -656,15 +730,83 @@ Every successful OpenAI response also writes an `openai-usage` line into the nor
 - Halftime and full-time watchers are scheduled with per-fixture `setTimeout`, not cron.
 - Post-publication live updates are only scheduled for fixtures that were actually published.
 - Restart recovery rebuilds pending halftime and full-time watcher timers for published picks that are still inside their polling windows.
+- Historical results are persisted for reporting and recovery, not for automatic self-learning.
 - There is a `1.5s` pause between pre-match posts to reduce Telegram rate-limit pressure.
 
 ## Current limitations
 
 These are important to understand in production:
 
+- The bot does not currently self-calibrate from historical performance; reports explain past results but do not change future thresholds or prompts automatically.
 - Halftime and full-time notifications use polling windows, not event subscriptions, so updates are near-real-time rather than exact-to-the-minute.
 - Commentary quality depends on provider stats plus web-search availability for that specific match.
 - If The Odds API cannot resolve a matching event or market, Gate 5 will block the pick even if the model likes it.
+
+## Operator FAQ
+
+### How do I check quickly that production is healthy?
+
+Use the basic three checks first:
+
+- PM2 status for the `ai-betting-bot` process,
+- recent runtime logs from `logs/combined.log` or `pm2 logs`,
+- private Telegram log forwarding via `/start`, `/logs on`, or `TELEGRAM_LOG_CHAT_ID`.
+
+If those three look normal, the bot is usually healthy enough for daily operation.
+
+### How do I redeploy safely from local?
+
+Use:
+
+```bash
+npm run deploy:vps
+```
+
+That uploads the current code and your local `.env`, backs up the remote app, restarts PM2, and runs the API-Sports smoke check.
+
+### When should I use reset-data deploy?
+
+Use:
+
+```bash
+npm run deploy:vps:reset-data
+```
+
+when you want to clear stale checkpoints, picks history for the app runtime, and dedup state before a fresh production run.
+
+It removes:
+
+- `data/checkpoints/`,
+- `data/picks-log.json`,
+- `data/posted.json`.
+
+It does not remove `data/telegram-log-subscribers.json`.
+
+### Why did a restart not bring back today's jobs?
+
+Restart recovery can only rebuild timers from persisted state.
+
+That means:
+
+- pre-match planning jobs recover only if the relevant date already has checkpointed fixtures,
+- halftime and full-time watchers recover only for published picks that still have usable `kickoffAt` and are still inside the recovery window.
+
+If there is no saved checkpoint or the recovery window has already passed, there is nothing to restore.
+
+### How do Telegram posts thread together?
+
+The posting model is fixed:
+
+- pre-match tip: standalone group message,
+- halftime update: reply to the original tip,
+- full-time update: reply to halftime if available, otherwise to the original tip,
+- weekly/monthly report: standalone pinned message.
+
+### Does the bot learn automatically from its past results?
+
+No.
+
+The bot stores long-term history in `data/picks-log.json` and uses it for reporting, recovery, and audit, but it does not automatically recalibrate thresholds, rewrite prompts, or retrain itself from that history.
 
 ## Troubleshooting
 
