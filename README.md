@@ -514,7 +514,7 @@ This file is used to build `cachedKnowledgeContext` for future fixtures so the m
 Important operational detail:
 
 - this file is separate from picks and checkpoints,
-- a `--reset-data` deploy clears checkpoints, picks log, OpenAI usage log, and dedup state,
+- a `--reset-data` deploy clears checkpoints, picks log, event-intelligence cache, OpenAI usage log, and dedup state,
 - it does not delete Telegram log subscriptions.
 
 ### Dedup store
@@ -616,7 +616,7 @@ npm start
 | `npm start` | Run the compiled app |
 | `npm run typecheck` | Run TypeScript typecheck without emit |
 | `npm run deploy:vps` | Build locally, upload the app and local `.env` to the VPS, back up the current app, install runtime deps, restart PM2, and run a smoke check |
-| `npm run deploy:vps:reset-data` | Same deploy flow, but also clears checkpoints, picks log, OpenAI usage log, and dedup data for the VPS app |
+| `npm run deploy:vps:reset-data` | Same deploy flow, but also clears checkpoints, picks log, event-intelligence cache, OpenAI usage log, and dedup data for the VPS app |
 | `npm run test-runner` | Execute the full pipeline for a target date |
 | `npm run test-runner-compiled` | Run the compiled test runner from `dist/test/test-runner.js` |
 | `npm run test-report` | Seed picks, assign outcomes, and send a pinned test report |

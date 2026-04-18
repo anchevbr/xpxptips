@@ -27,7 +27,7 @@ usage() {
 Usage: ./scripts/deploy-vps.sh [options]
 
 Options:
-  --reset-data         Remove checkpoints, picks log, OpenAI usage log, and dedup state on the VPS app
+  --reset-data         Remove checkpoints, picks log, event-intelligence cache, OpenAI usage log, and dedup state on the VPS app
   --skip-build         Skip local typecheck/build before packaging
   --skip-smoke-check   Skip the remote API-Sports smoke check after restart
   --dry-run            Print the resolved deployment config and exit
@@ -203,7 +203,7 @@ npm ci --omit=dev
 
 if [[ "$RESET_DATA" == true ]]; then
   rm -rf data/checkpoints
-  rm -f data/picks-log.json data/openai-usage.ndjson data/posted.json
+  rm -f data/picks-log.json data/event-intelligence.json data/openai-usage.ndjson data/posted.json
 fi
 
 if [[ "$pm2_exists" == true ]]; then
