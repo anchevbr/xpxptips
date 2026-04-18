@@ -117,6 +117,8 @@ export interface MatchData {
   dataQualityNotes: string[];
   /** Pre-formatted structured provider data injected into the expert prompt */
   structuredContext?: string;
+  /** Locally cached historical context from previous events, odds snapshots, and pre/post match notes. */
+  cachedKnowledgeContext?: string;
   /** Available betting markets and odds from The Odds API */
   availableOdds?: {
     homeWin?: number;
@@ -177,6 +179,7 @@ export interface PickRecord {
   fixtureId: string;
   /** Match date YYYY-MM-DD */
   date: string;
+  competition?: Competition;
   league: string;
   homeTeam: string;
   awayTeam: string;
@@ -204,8 +207,12 @@ export interface PickRecord {
   resolvedAt: string | null;
   /** ISO datetime when the halftime update was sent to Telegram — null if not yet sent */
   halfTimeNotifiedAt: string | null;
+  /** ISO datetime when the halftime snapshot was captured to the local intelligence cache */
+  halfTimeSnapshotCapturedAt?: string | null;
   /** Telegram message id of the halftime update */
   halfTimeMessageId?: number | null;
+  /** ISO datetime when the full-time snapshot was captured to the local intelligence cache */
+  fullTimeSnapshotCapturedAt?: string | null;
   /** ISO datetime when the full-time update was sent to Telegram — null if not yet sent */
   fullTimeNotifiedAt: string | null;
   /** Telegram message id of the full-time update */

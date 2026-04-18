@@ -36,9 +36,10 @@ export async function publishSingleResult(
     const savedPick: PickRecord = {
       fixtureId: matchData.fixture.id,
       date,
+      competition: matchData.fixture.competition,
       league: matchData.fixture.league,
-      homeTeam: matchData.fixture.homeTeam,
-      awayTeam: matchData.fixture.awayTeam,
+      homeTeam: analysis.homeTeam,
+      awayTeam: analysis.awayTeam,
       postedAt,
       kickoffAt: matchData.fixture.date,
       liveDataProvider: matchData.fixture.liveDataProvider ?? null,
@@ -53,6 +54,7 @@ export async function publishSingleResult(
       resolvedAt: null as null,
       halfTimeNotifiedAt: null as null,
       halfTimeMessageId: null as null,
+      fullTimeSnapshotCapturedAt: null as null,
       fullTimeNotifiedAt: null as null,
       fullTimeMessageId: null as null,
     };

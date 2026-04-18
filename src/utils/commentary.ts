@@ -26,10 +26,35 @@ export const DEFAULT_INLINE_COMMENTARY_STATS = [
   'Rebounds',
   'Assists',
   'Field Goals %',
+  'Q1',
+  'Q2',
+  '1st Half',
+  'Q3',
+  'Q4',
+  '2nd Half',
+  'Total',
 ] as const;
 
 const commentaryClient = createOpenAIClient();
-const STAT_LABEL_OVERRIDES: Record<string, string> = { expected_goals: 'xG' };
+const STAT_LABEL_OVERRIDES: Record<string, string> = {
+  expected_goals: 'xG',
+  'Shots on Goal': 'Σουτ στην εστία',
+  'Ball Possession': 'Κατοχή',
+  'Corner Kicks': 'Κόρνερ',
+  'Yellow Cards': 'Κίτρινες',
+  Rebounds: 'Ριμπάουντ',
+  Assists: 'Ασίστ',
+  'Field Goals %': 'Ευστοχία εντός πεδιάς',
+  'Free Throws %': 'Ευστοχία βολών',
+  Q1: '1η περίοδος',
+  Q2: '2η περίοδος',
+  Q3: '3η περίοδος',
+  Q4: '4η περίοδος',
+  '1st Half': '1ο ημίχρονο',
+  '2nd Half': '2ο ημίχρονο',
+  Overtime: 'Παράταση',
+  Total: 'Σύνολο',
+};
 
 export function sanitizeCommentaryText(raw: string): string {
   let text = raw.trim();
@@ -92,6 +117,12 @@ export function buildInlineKeyStats(
   for (const statName of wantedStats) {
     const stat = stats.find(candidate => candidate.strStat.toLowerCase() === statName.toLowerCase());
     if (stat) {
+      lines.push(`${formatStatLabel(stat.strStat)}: ${stat.intHome}–${stat.intAway}`);
+    }
+  }
+
+  if (lines.length === 0) {
+    for (const stat of stats.slice(0, 4)) {
       lines.push(`${formatStatLabel(stat.strStat)}: ${stat.intHome}–${stat.intAway}`);
     }
   }

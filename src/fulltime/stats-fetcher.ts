@@ -5,12 +5,14 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 export {
+  fetchEventIncidents,
   fetchLiveStatus,
   fetchEventStats,
   fetchEventLineup,
 } from '../halftime/stats-fetcher';
 
 export type {
+  EventIncident,
   EventStat,
   LiveEventStatus,
   LineupPlayer,

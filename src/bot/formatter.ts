@@ -20,15 +20,17 @@ export async function formatTip(
   fixture: Fixture
 ): Promise<FormattedTip> {
   const emoji = COMPETITION_EMOJI[fixture.competition] ?? '🏆';
-  const leagueLabel = fixture.league;
   const athensTime = formatAthensDateTime(fixture.date);
+  const homeTeamLabel = analysis.homeTeam;
+  const awayTeamLabel = analysis.awayTeam;
+  const reasoning = analysis.shortReasoning;
 
   const lines: string[] = [
-    `${emoji} <b>${leagueLabel} | ${fixture.homeTeam} vs ${fixture.awayTeam}</b>`,
+    `${emoji} <b>${fixture.league} | ${homeTeamLabel} vs ${awayTeamLabel}</b>`,
     ``,
     `🕐 <i>${athensTime}</i>`,
     ``,
-    analysis.shortReasoning,
+    reasoning,
   ];
 
   lines.push('');

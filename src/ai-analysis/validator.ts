@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { containsGreek, preferGreekEntityName } from '../utils/greek-text';
 import type { BettingAnalysis, MatchData } from '../types';
 
 /**
@@ -59,11 +60,11 @@ export function validateAnalysis(
   // (model sometimes swaps or invents team names)
   const homeTeam = String(obj['homeTeam']).trim();
   const awayTeam = String(obj['awayTeam']).trim();
+  const resolvedHomeTeam = preferGreekEntityName(homeTeam, fixture.homeTeam);
+  const resolvedAwayTeam = preferGreekEntityName(awayTeam, fixture.awayTeam);
+  const hasModelGreekTeamNames = containsGreek(homeTeam) || containsGreek(awayTeam);
 
-  if (
-    !loosyMatch(homeTeam, fixture.homeTeam) ||
-    !loosyMatch(awayTeam, fixture.awayTeam)
-  ) {
+  if (!hasModelGreekTeamNames && (!loosyMatch(homeTeam, fixture.homeTeam) || !loosyMatch(awayTeam, fixture.awayTeam))) {
     logger.warn(
       `[validator] team name mismatch: model="${homeTeam} vs ${awayTeam}", fixture="${fixture.homeTeam} vs ${fixture.awayTeam}" — correcting`
     );
@@ -74,14 +75,16 @@ export function validateAnalysis(
     bestBettingMarket,
     String(obj['finalPick']).trim(),
     matchData,
+    resolvedHomeTeam,
+    resolvedAwayTeam,
   );
 
   return {
     event: String(obj['event']).trim(),
     competition: String(obj['competition']).trim(),
     date: String(obj['date']).trim(),
-    homeTeam: fixture.homeTeam,  // always trust fixture source
-    awayTeam: fixture.awayTeam,
+    homeTeam: resolvedHomeTeam,
+    awayTeam: resolvedAwayTeam,
     keyFacts: (obj['keyFacts'] as unknown[]).map(String).filter(Boolean),
     riskFactors: (obj['riskFactors'] as unknown[]).map(String).filter(Boolean),
     bestBettingMarket,
@@ -107,6 +110,8 @@ function canonicalizeFinalPick(
   market: string,
   rawFinalPick: string,
   matchData: MatchData,
+  homeTeamLabel: string,
+  awayTeamLabel: string,
 ): string {
   const trimmed = rawFinalPick.trim();
   if (!trimmed) return trimmed;
@@ -115,13 +120,13 @@ function canonicalizeFinalPick(
     case 'h2h/home':
       return matchData.fixture.competition === 'football'
         ? 'Άσσος'
-        : `Νίκη ${matchData.fixture.homeTeam}`;
+        : `Νίκη ${homeTeamLabel}`;
     case 'h2h/draw':
       return 'Ισοπαλία';
     case 'h2h/away':
       return matchData.fixture.competition === 'football'
         ? 'Διπλό'
-        : `Νίκη ${matchData.fixture.awayTeam}`;
+        : `Νίκη ${awayTeamLabel}`;
     case 'btts/yes':
       return 'G/G';
     case 'btts/no':

@@ -9,6 +9,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import { recordResolvedSnapshot } from '../cache/event-intelligence';
 import { logger } from '../utils/logger';
 import type { LiveDataProvider, PickRecord } from '../types';
 
@@ -108,6 +109,7 @@ export function updateOutcome(
   picks[idx]!.actualScore = actualScore;
   picks[idx]!.resolvedAt = new Date().toISOString();
   writePicks(picks);
+  recordResolvedSnapshot(picks[idx]!);
 }
 
 /**
@@ -124,6 +126,30 @@ export function updateHalftimeNotified(fixtureId: string, halfTimeMessageId?: nu
   if (typeof halfTimeMessageId === 'number') {
     picks[idx]!.halfTimeMessageId = halfTimeMessageId;
   }
+  writePicks(picks);
+}
+
+export function updateHalftimeSnapshotCaptured(fixtureId: string): void {
+  const picks = readPicks();
+  const idx = picks.findIndex(p => p.fixtureId === fixtureId);
+  if (idx < 0) {
+    logger.warn(`[picks-store] cannot mark halftime snapshot — not found: ${fixtureId}`);
+    return;
+  }
+
+  picks[idx]!.halfTimeSnapshotCapturedAt = new Date().toISOString();
+  writePicks(picks);
+}
+
+export function updateFulltimeSnapshotCaptured(fixtureId: string): void {
+  const picks = readPicks();
+  const idx = picks.findIndex(p => p.fixtureId === fixtureId);
+  if (idx < 0) {
+    logger.warn(`[picks-store] cannot mark fulltime snapshot — not found: ${fixtureId}`);
+    return;
+  }
+
+  picks[idx]!.fullTimeSnapshotCapturedAt = new Date().toISOString();
   writePicks(picks);
 }
 

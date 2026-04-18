@@ -46,6 +46,17 @@ export interface ProviderLineupPlayer {
   strSubstitute: string;
 }
 
+export interface ProviderMatchIncident {
+  elapsed: number | null;
+  extra: number | null;
+  team: string;
+  player: string;
+  assist: string;
+  type: string;
+  detail: string;
+  comments: string;
+}
+
 export interface ResolvedApiSportsFixture {
   provider: Extract<LiveDataProvider, 'api-football' | 'api-basketball'>;
   liveDataFixtureId: string;
@@ -84,6 +95,26 @@ interface FootballLineupTeam {
   team: FootballFixtureTeam;
   startXI?: FootballLineupPlayerEntry[] | null;
   substitutes?: FootballLineupPlayerEntry[] | null;
+}
+
+interface FootballEventParticipant {
+  id?: number | null;
+  name?: string | null;
+}
+
+interface FootballEventTime {
+  elapsed?: number | null;
+  extra?: number | null;
+}
+
+interface FootballFixtureEvent {
+  time?: FootballEventTime | null;
+  team?: FootballFixtureTeam | null;
+  player?: FootballEventParticipant | null;
+  assist?: FootballEventParticipant | null;
+  type?: string | null;
+  detail?: string | null;
+  comments?: string | null;
 }
 
 interface FootballFixtureDetail {
@@ -158,6 +189,7 @@ const resolvedFixtureCache = new Map<string, ResolvedApiSportsFixture | null>();
 const footballFixturesByDateCache = new Map<string, FootballFixtureDetail[]>();
 const basketballGamesByDateCache = new Map<string, BasketballGameDetail[]>();
 const footballDetailCache = new Map<string, CacheEntry<FootballFixtureDetail | null>>();
+const footballEventsCache = new Map<string, CacheEntry<FootballFixtureEvent[] | null>>();
 const basketballDetailCache = new Map<string, CacheEntry<BasketballGameDetail | null>>();
 
 const FOOTBALL_LEAGUE_IDS: Array<{ match: string; id: number }> = [
@@ -639,6 +671,27 @@ async function fetchBasketballDetail(id: string): Promise<BasketballGameDetail |
   return writeTtlCache(basketballDetailCache, id, response[0] ?? null);
 }
 
+async function fetchFootballEvents(id: string): Promise<FootballFixtureEvent[] | null> {
+  const cached = readTtlCache(footballEventsCache, id);
+  if (cached !== undefined) return cached;
+
+  const data = await getApiSportsJson<FootballFixtureEvent[]>(
+    FOOTBALL_BASE_URL,
+    '/fixtures/events',
+    { fixture: id },
+  );
+  if (!data) return null;
+
+  const errors = describeErrors(data.errors);
+  if (errors) {
+    logger.warn(`[api-sports] football fixture events failed for ${id}: ${errors}`);
+    return null;
+  }
+
+  const response = Array.isArray(data.response) ? data.response : [];
+  return writeTtlCache(footballEventsCache, id, response);
+}
+
 function mapFootballStats(detail: FootballFixtureDetail): ProviderEventStat[] {
   if (!Array.isArray(detail.statistics) || detail.statistics.length === 0) {
     return [];
@@ -714,6 +767,21 @@ function mapFootballLineups(detail: FootballFixtureDetail): ProviderLineupPlayer
   }
 
   return players;
+}
+
+function mapFootballIncidents(events: FootballFixtureEvent[]): ProviderMatchIncident[] {
+  return events
+    .map(event => ({
+      elapsed: toNumberOrNull(event.time?.elapsed),
+      extra: toNumberOrNull(event.time?.extra),
+      team: event.team?.name ?? '',
+      player: event.player?.name ?? '',
+      assist: event.assist?.name ?? '',
+      type: event.type ?? '',
+      detail: event.detail ?? '',
+      comments: event.comments ?? '',
+    }))
+    .filter(event => event.type.trim().length > 0 || event.detail.trim().length > 0);
 }
 
 function pushBasketballStat(
@@ -818,6 +886,21 @@ export async function fetchApiSportsEventLineup(
   const detail = await fetchFootballDetail(resolved.liveDataFixtureId);
   if (!detail) return undefined;
   return mapFootballLineups(detail);
+}
+
+export async function fetchApiSportsEventIncidents(
+  target: LiveDataTarget,
+): Promise<ProviderMatchIncident[] | undefined> {
+  const resolved = await resolveApiSportsFixture(target);
+  if (!resolved) return undefined;
+
+  if (resolved.provider !== 'api-football') {
+    return [];
+  }
+
+  const events = await fetchFootballEvents(resolved.liveDataFixtureId);
+  if (!events) return undefined;
+  return mapFootballIncidents(events);
 }
 
 export async function fetchApiSportsEventResult(

@@ -33,6 +33,7 @@ function buildPickRecord(targetDate: string, fixture: Fixture, analysis: Betting
     resolvedAt: null,
     halfTimeNotifiedAt: null,
     halfTimeMessageId: null,
+    fullTimeSnapshotCapturedAt: null,
     fullTimeNotifiedAt: null,
     fullTimeMessageId: null,
   };

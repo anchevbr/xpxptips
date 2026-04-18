@@ -7,13 +7,25 @@
 // until the live-data provider reports "HT". Fires at most once per fixture.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { config } from '../config';
+import { recordHalftimeSnapshot } from '../cache/event-intelligence';
 import { logger } from '../utils/logger';
 import { buildInlineKeyStats } from '../utils/commentary';
 import { sendToGroup } from '../bot/telegram';
-import { getPickByFixtureId, updateHalftimeNotified } from '../reports/picks-store';
-import { fetchLiveStatus, fetchEventStats, fetchEventLineup, isHalftime } from './stats-fetcher';
+import {
+  getPickByFixtureId,
+  updateHalftimeNotified,
+  updateHalftimeSnapshotCaptured,
+} from '../reports/picks-store';
+import {
+  fetchLiveStatus,
+  fetchEventIncidents,
+  fetchEventStats,
+  fetchEventLineup,
+  isHalftime,
+} from './stats-fetcher';
 import { generateHalftimeNarrative } from './narrator';
-import { assessHalftimeTipState, halftimeStatusLabel } from './tip-state';
+import { assessHalftimeTipState } from './tip-state';
 import type { PickRecord } from '../types';
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes between each poll attempt
@@ -35,13 +47,12 @@ function formatHalftimeMessage(
       : '?–?';
 
   const statsLine = buildInlineKeyStats(stats);
-  const halftimeState = assessHalftimeTipState(pick, homeScore, awayScore);
   const header =
-    halftimeState === 'lost'
+    assessHalftimeTipState(pick, homeScore, awayScore) === 'lost'
       ? '🚨💔 <b>Χάθηκε Από Το Ημίχρονο</b>'
-      : halftimeState === 'won'
+      : assessHalftimeTipState(pick, homeScore, awayScore) === 'won'
       ? '✅🔥 <b>Κλείδωσε Από Το Ημίχρονο</b>'
-      : halftimeState === 'on-track'
+      : assessHalftimeTipState(pick, homeScore, awayScore) === 'on-track'
       ? '🟢📈 <b>Ενημέρωση Ημιχρόνου</b>'
       : '🟠⏱️ <b>Ενημέρωση Ημιχρόνου</b>';
 
@@ -51,7 +62,6 @@ function formatHalftimeMessage(
     `🏆 ${pick.league}\n` +
     `⚽ Σκορ: <b>${scoreDisplay}</b> (HT)\n` +
     `🎯 Πρόταση: <b>${pick.finalPick}</b>\n\n` +
-    `📍 Κατάσταση: <b>${halftimeStatusLabel(halftimeState)}</b>\n\n` +
     `<i>${narrative}</i>\n` +
     (statsLine ? `\n📊 ${statsLine}` : '')
   );
@@ -75,6 +85,23 @@ async function attemptHalftimeNotification(pick: PickRecord): Promise<boolean> {
 
   const stats = await fetchEventStats(currentPick);
   const lineup = await fetchEventLineup(currentPick);
+  const incidents = await fetchEventIncidents(currentPick);
+
+  recordHalftimeSnapshot(currentPick, {
+    status: live.status,
+    homeScore: live.homeScore,
+    awayScore: live.awayScore,
+    stats,
+    lineup,
+    incidents,
+  });
+  updateHalftimeSnapshotCaptured(currentPick.fixtureId);
+
+  if (!config.liveUpdates.halftimeCommentaryEnabled) {
+    logger.info(`[halftime] snapshot captured for ${currentPick.homeTeam} vs ${currentPick.awayTeam}`);
+    return true;
+  }
+
   const narrative = await generateHalftimeNarrative(currentPick, live.homeScore, live.awayScore, stats, lineup);
   const message = formatHalftimeMessage(currentPick, live.homeScore, live.awayScore, stats, narrative);
   const halfTimeMessageId = await sendToGroup(message, {
@@ -139,7 +166,11 @@ export function scheduleHalftimeWatch(pick: PickRecord, kickoffMs: number): void
 }
 
 export function recoverHalftimeWatch(pick: PickRecord): boolean {
-  if (pick.halfTimeNotifiedAt || !pick.kickoffAt) {
+  const halftimeComplete = config.liveUpdates.halftimeCommentaryEnabled
+    ? pick.halfTimeNotifiedAt
+    : pick.halfTimeSnapshotCapturedAt;
+
+  if (halftimeComplete || !pick.kickoffAt) {
     return false;
   }
 

@@ -1,3 +1,4 @@
+import { buildCachedKnowledgeContext, recordEnrichmentSnapshot } from '../cache/event-intelligence';
 import { logger } from '../utils/logger';
 import { enrichFromApiSports } from './providers/api-sports-enrichment';
 import { fetchOddsForFixture, getAverageOdds, getMostCommonTotalsLine } from './providers/odds-api';
@@ -57,6 +58,9 @@ export async function enrichFixture(fixture: Fixture): Promise<MatchData> {
     logger.warn(`[enrichment] failed to fetch odds: ${String(err)}`);
   }
 
+  recordEnrichmentSnapshot(fixture, providerEnrichment.structuredContext, availableOdds);
+  const cachedKnowledgeContext = buildCachedKnowledgeContext(fixture);
+
   return {
     fixture,
     homeTeamStats: providerEnrichment.homeTeamStats,
@@ -68,6 +72,7 @@ export async function enrichFixture(fixture: Fixture): Promise<MatchData> {
     dataQuality: providerEnrichment.dataQuality,
     dataQualityNotes: providerEnrichment.dataQualityNotes,
     structuredContext: providerEnrichment.structuredContext,
+    cachedKnowledgeContext,
     availableOdds,
   };
 }

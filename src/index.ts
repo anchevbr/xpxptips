@@ -12,6 +12,10 @@ async function main(): Promise<void> {
     `analyze and send ${config.scheduler.analysisHoursBeforeKickoff}h before kickoff`
   );
   logger.info(`  Spend    : ${config.scheduler.dailySpendCron} (${config.scheduler.timezone})`);
+  logger.info(
+    `  Live     : halftime commentary ${config.liveUpdates.halftimeCommentaryEnabled ? 'on' : 'off'} | ` +
+    `full-time commentary ${config.liveUpdates.fulltimeCommentaryEnabled ? 'on' : 'off'}`
+  );
   logger.info(`  Group    : ${config.telegram.groupChatId}`);
   logger.info('─────────────────────────────────────────────────────────');
 

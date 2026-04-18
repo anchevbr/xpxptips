@@ -1,4 +1,5 @@
 import { config } from '../config';
+import { recordAnalysisSnapshot, recordLiveContextSnapshot } from '../cache/event-intelligence';
 import { logger } from '../utils/logger';
 import { createOpenAIClient } from '../utils/openai-client';
 import { extractResponseOutputText, runResponseWithActivityLogging } from '../utils/openai-activity';
@@ -11,6 +12,55 @@ import type { Fixture, MatchData, BettingAnalysis } from '../types';
 
 const openai = createOpenAIClient();
 const RETRYABLE_OPENAI_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
+const EXTENDED_PROMPT_CACHE_MODELS = new Set(['gpt-5.4']);
+const LIVE_CONTEXT_PROMPT_PREFIX = [
+  'Βρες το πιο σημαντικό prematch context για το fixture που περιγράφεται παρακάτω.',
+  'Προτίμησε επίσημα club και league sites, UEFA/FIFA, έγκυρους local reporters, Reuters/AP, ESPN, BBC, Sky, The Athletic, Kicker, Marca, AS, Mundo Deportivo, Bild, L\'Equipe ή αντίστοιχα αξιόπιστες πηγές.',
+  'Επέστρεψε ένα σύντομο scouting note στα ελληνικά μόνο με τα πιο ουσιώδη σημεία:',
+  '(1) πρόσφατη φόρμα 3-5 αγώνων,',
+  '(2) βασικές απουσίες, τιμωρίες, lineup doubts και πιθανό rotation,',
+  '(3) τακτική εικόνα και πιθανό match plan,',
+  '(4) εσωτερικό context ομάδας: πίεση προπονητή, δηλώσεις, ψυχολογία, board/fan pressure, πειθαρχικά ή θέματα αποδυτηρίων, μόνο αν αναφέρονται αξιόπιστα,',
+  '(5) motivation και match-state context: aggregate, must-win ανάγκη, qualification scenario, κόπωση, ταξίδι, πίεση προγράμματος,',
+  '(6) τρέχουσα βαθμολογική θέση αν είναι relevant,',
+  '(7) πρόσφατο odds snapshot αν είναι relevant.',
+  'Μην κυνηγάς φήμες. Μην επαναλαμβάνεις το ίδιο fact. Εστίασε μόνο σε ό,τι αλλάζει ουσιαστικά tempo, risk, motivation ή market value.',
+].join(' ');
+
+function normalizeModelName(model: string): string {
+  return model.trim().toLowerCase();
+}
+
+function resolveLiveContextPromptCacheRetention(model: string): 'in_memory' | '24h' {
+  if (
+    config.openai.liveContextPromptCacheRetention === '24h' &&
+    EXTENDED_PROMPT_CACHE_MODELS.has(normalizeModelName(model))
+  ) {
+    return '24h';
+  }
+
+  return 'in_memory';
+}
+
+function buildLiveContextQuery(
+  fixture: Fixture,
+  dateStr: string,
+  cachedKnowledgeContext?: string,
+): string {
+  const cachedBlock = cachedKnowledgeContext?.trim()
+    ? `\n\nΤοπική βάση γνώσης / cache:\n${cachedKnowledgeContext}\n\nΟδηγία: ΜΗΝ ξαναψάξεις για παλιές πληροφορίες που καλύπτονται ήδη στο cache. Κάνε web search μόνο για νεότερες ή ελλείπουσες ενημερώσεις γύρω από το συγκεκριμένο fixture.`
+    : '';
+
+  return (
+    `${LIVE_CONTEXT_PROMPT_PREFIX}\n\n` +
+    `Στοιχεία αγώνα:\n` +
+    `Γηπεδούχος: ${fixture.homeTeam}\n` +
+    `Φιλοξενούμενος: ${fixture.awayTeam}\n` +
+    `Λίγκα: ${fixture.league}\n` +
+    `Ημερομηνία: ${dateStr}` +
+    cachedBlock
+  );
+}
 
 function getErrorStatus(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
@@ -36,28 +86,20 @@ function isRetryableOpenAIError(error: unknown): boolean {
  * Uses the same web_search_preview-only call pattern as fixture discovery.
  * Returns empty string on failure so analysis can still proceed.
  */
-async function fetchLiveContext(fixture: Fixture): Promise<string> {
+async function fetchLiveContext(
+  fixture: Fixture,
+  cachedKnowledgeContext?: string,
+): Promise<string> {
   const dateStr = fixture.date.substring(0, 10);
   const model = config.openai.liveContextModel;
   const effort = config.openai.liveContextEffort;
   const startedAt = Date.now();
-  const query =
-    `Find the most important pre-match context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
-    `in ${fixture.league} on ${dateStr}. ` +
-    `Prefer official club, league, UEFA/FIFA, trusted local reporters, Reuters/AP, ESPN, BBC, Sky, The Athletic, Kicker, Marca, AS, Mundo Deportivo, Bild, L'Equipe or similarly credible sources. ` +
-    `Return one compact scouting note with only these sections and only the most material items: ` +
-    `(1) recent form from the last 3-5 matches, ` +
-    `(2) key absences, suspensions, lineup doubts and likely rotation, ` +
-    `(3) tactical setup and likely match plan, ` +
-    `(4) internal/team context: coach pressure, dressing-room mood, public statements, board/fan pressure, contract or morale issues, dressing-room problems, disciplinary issues, recovery or returnee news — include only if credibly reported, otherwise say none reported, ` +
-    `(5) motivation and match-state context: aggregate score, must-win angle, qualification scenario, fatigue, travel or schedule pressure, ` +
-    `(6) current table position or competition standing if relevant, ` +
-    `(7) current odds snapshot if available. ` +
-    `Do not chase rumours. Do not repeat the same fact. Focus on what materially changes match tempo, risk or motivation.`;
+  const promptCacheRetention = resolveLiveContextPromptCacheRetention(model);
+  const query = buildLiveContextQuery(fixture, dateStr, cachedKnowledgeContext);
 
   logger.info(
     `[expert] fetching live context for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
-    `| model=${model} | effort=${effort} | timeoutMs=${config.openai.timeoutMs}`
+    `| model=${model} | effort=${effort} | prompt_cache_retention=${promptCacheRetention} | timeoutMs=${config.openai.timeoutMs}`
   );
 
   const progressTimer = setInterval(() => {
@@ -85,6 +127,8 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
           params: {
             model,
             input: query,
+            prompt_cache_key: config.openai.liveContextPromptCacheKey,
+            prompt_cache_retention: promptCacheRetention,
             reasoning: { effort },
             text: { verbosity: 'low' },
             tools: [{ type: 'web_search_preview' }],
@@ -127,6 +171,7 @@ async function fetchLiveContext(fixture: Fixture): Promise<string> {
       `[expert] live context fetched (${text.length} chars) for ${fixture.homeTeam} vs ${fixture.awayTeam} ` +
       `| elapsed=${Math.round((Date.now() - startedAt) / 1000)}s`
     );
+    recordLiveContextSnapshot(fixture, text);
     return text;
   } catch (err) {
     clearInterval(progressTimer);
@@ -147,7 +192,7 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
   );
 
   // Step 1: Live web search — fetch current form, injuries, odds, standings
-  const liveContext = await fetchLiveContext(fixture);
+  const liveContext = await fetchLiveContext(fixture, matchData.cachedKnowledgeContext);
 
   const isSoccer = fixture.competition === 'football';
   const userPrompt = buildExpertUserPrompt(matchData, liveContext);
@@ -214,16 +259,19 @@ export async function analyzeMatch(matchData: MatchData): Promise<BettingAnalysi
   }
 
   if (!result.isPickRecommended) {
+    recordAnalysisSnapshot(fixture, result);
     logger.info(`[expert] model declined pick for ${fixture.id}: ${result.noPickReason ?? 'no reason'}`);
     return result;
   }
 
   if (result.confidence < config.analysis.minConfidenceToPublish) {
+    recordAnalysisSnapshot(fixture, result);
     logger.info(
       `[expert] confidence ${result.confidence} below threshold ${config.analysis.minConfidenceToPublish} for ${fixture.id}`
     );
     return { ...result, isPickRecommended: false, noPickReason: `Confidence ${result.confidence}/10 below publish threshold` };
   }
 
+  recordAnalysisSnapshot(fixture, result);
   return result;
 }

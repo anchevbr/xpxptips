@@ -6,6 +6,7 @@
 
 import type { PickRecord } from '../types';
 import {
+  fetchApiSportsEventIncidents,
   fetchApiSportsEventLineup,
   fetchApiSportsEventStats,
   fetchApiSportsLiveStatus,
@@ -25,6 +26,17 @@ export interface LiveEventStatus {
   status: string;
 }
 
+export interface EventIncident {
+  elapsed: number | null;
+  extra: number | null;
+  team: string;
+  player: string;
+  assist: string;
+  type: string;
+  detail: string;
+  comments: string;
+}
+
 export async function fetchLiveStatus(pick: PickRecord): Promise<LiveEventStatus | null> {
   const apiStatus = await fetchApiSportsLiveStatus(pick);
   if (apiStatus === undefined) {
@@ -41,6 +53,15 @@ export async function fetchEventStats(pick: PickRecord): Promise<EventStat[]> {
     return [];
   }
   return apiStats;
+}
+
+export async function fetchEventIncidents(pick: PickRecord): Promise<EventIncident[]> {
+  const apiIncidents = await fetchApiSportsEventIncidents(pick);
+  if (apiIncidents === undefined) {
+    logger.warn(`[halftime] unresolved API-Sports incidents for ${pick.fixtureId}`);
+    return [];
+  }
+  return apiIncidents;
 }
 
 /** Returns true when the status string indicates halftime */

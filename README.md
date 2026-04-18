@@ -19,8 +19,9 @@ This repository is built around three ideas:
 - OpenAI live-context fetch with web search, activity logging, and retry/backoff for transient failures.
 - Real bookmaker market validation before a tip can be published.
 - Broadcast-only Telegram posting with HTML formatting and disabled link previews.
-- Reply-chained halftime updates for each published fixture.
-- Reply-chained full-time updates for each published fixture.
+- Toggleable reply-chained halftime commentary for published fixtures.
+- Reply-chained full-time result updates, with optional AI commentary.
+- Persistent event-intelligence cache with pre-match context, live-context notes, odds snapshots, HT/FT snapshots, and resolved post-match summaries.
 - Weekly report posting every Monday.
 - Monthly report posting on the first Monday of each month.
 - Pinning for weekly/monthly reports.
@@ -33,6 +34,11 @@ This repository is built around three ideas:
 
 ```text
 src/
+├── cache/
+│   └── event-intelligence.ts
+├── costs/
+│   ├── openai-spend.ts
+│   └── pricing.ts
 ├── index.ts
 ├── config.ts
 ├── ai-analysis/
@@ -54,7 +60,8 @@ src/
 │   ├── index.ts
 │   ├── watcher.ts
 │   ├── narrator.ts
-│   └── stats-fetcher.ts
+│   ├── stats-fetcher.ts
+│   └── tip-state.ts
 ├── odds/
 │   └── index.ts
 ├── reports/
@@ -76,6 +83,8 @@ src/
 │       ├── api-sports-live.ts
 │       └── odds-api.ts
 ├── test/
+│   ├── load-test-pick.ts
+│   ├── support.ts
 │   ├── test-runner.ts
 │   ├── test-report.ts
 │   ├── test-halftime.ts
@@ -84,251 +93,233 @@ src/
 ├── types/
 │   └── index.ts
 └── utils/
+    ├── commentary.ts
     ├── checkpoint.ts
     ├── date.ts
+    ├── greek-text.ts
     ├── logger.ts
+    ├── openai-activity.ts
+    ├── openai-client.ts
+    ├── openai-usage.ts
+    ├── telegram-log-notifier.ts
+    ├── telegram-log-subscribers.ts
     └── retry.ts
 ```
 
-## End-to-end runtime flow
+## Daily runtime pipeline
 
-### 1. Process startup
+### 1. Startup and recovery
 
-`src/index.ts` loads configuration, launches the Telegram bot in long-polling mode, and starts the scheduler.
+`src/index.ts` loads configuration, starts Telegram long-polling, and boots the scheduler.
 
-The Telegram client is intentionally minimal in the group chat:
+Before registering new cron jobs, the scheduler performs recovery:
 
-- no group commands are registered,
-- group messages are not answered,
-- normal send operations go to the configured group chat,
-- private `/start` and `/logs` commands exist only for operator log subscription and status,
-- reports can be pinned through `sendAndPinInGroup()`.
+1. recover pending analysis timers for today and tomorrow from fixture checkpoints,
+2. recover pending halftime and full-time watchers from published picks,
+3. then register the planning cron, daily spend cron, and Monday report cron.
 
-### 2. Planning job
+Halftime recovery is state-aware:
 
-The planning job runs on `PLANNING_CRON` in `TIMEZONE`.
+- if halftime commentary is enabled, it recovers based on `halfTimeNotifiedAt`,
+- if halftime commentary is disabled, it recovers based on `halfTimeSnapshotCapturedAt`.
 
-The current default config is `0 10 * * *` in `Europe/Athens`.
+### 2. Daily planning cron for the target fixture date
 
-Its job is to:
+The planning cron runs on `PLANNING_CRON` in `TIMEZONE`.
 
-1. determine the target date in `TIMEZONE`,
-2. fetch fixtures from API-Sports,
-3. write those fixtures to checkpoint storage,
-4. schedule a per-fixture analysis job for each fixture at `kickoff - ANALYSIS_HOURS_BEFORE_KICKOFF`,
-5. send the tip immediately when that analysis finishes and passes all gates.
+Current default: `0 10 * * *` in `Europe/Athens`.
 
-By default, the nightly run targets the current calendar day in `TIMEZONE`, not UTC tomorrow.
+When it fires, `runPlanningJob()`:
 
-If the process restarts, the scheduler attempts to recover pending analysis jobs for today and tomorrow in `TIMEZONE` from checkpoint data.
+1. resolves `targetDate = todayInTimeZone(TIMEZONE)`,
+2. loads `data/checkpoints/{date}/fixtures.json` if it already exists,
+3. otherwise fetches the tracked slate from API-Sports and checkpoints it,
+4. computes one run time per fixture at `kickoff - ANALYSIS_HOURS_BEFORE_KICKOFF`,
+5. schedules each fixture with `setTimeout`, or runs it immediately if the analysis window already started.
 
-### 2a. Daily OpenAI spend report
+So the cron plans the day, but each match is analyzed later at its own lead time.
 
-The spend report runs on `DAILY_SPEND_CRON` in `TIMEZONE`.
+### 3. Per-fixture job at `kickoff - lead time`
 
-The current default config is `30 9 * * *` in `Europe/Athens`.
+When a fixture timer fires, `runFixtureJob()`:
 
-Its job is to:
+1. skips the fixture if it was already posted that day and `FORCE_ANALYSIS` is off,
+2. runs the full analysis pipeline for that single fixture,
+3. publishes only if the pipeline returns an approved pick.
 
-1. aggregate all persisted OpenAI usage rows for the previous fixture date,
-2. sum exact input, cached-input, output, reasoning-output, and total tokens,
-3. count OpenAI web-search tool calls,
-4. convert usage to USD using the configured model pricing snapshot in code,
-5. send the result to operator Telegram recipients.
+The model is never used to discover fixtures. By the time AI runs, the fixture list already came from the provider APIs.
 
-Per-fixture usage is tagged with the fixture date, so late-night or after-midnight commentary for that slate is still counted against the correct day.
+### 4. Enrichment and local knowledge build
 
-### 3. Fixture discovery
+`enrichFixture()` builds `MatchData` from providers first.
 
-Fixture discovery uses API-Sports date-based schedule endpoints with header authentication. The code sends both the target `date` and the configured `TIMEZONE` so the provider returns the slate for the same calendar day the scheduler is targeting, then filters locally by tracked competition and team metadata.
-
-Supported competitions in the current code:
-
-| Competition | Sport | API-Sports league ID |
-| --- | --- | --- |
-| Premier League | Football | 39 |
-| La Liga | Football | 140 |
-| Serie A | Football | 135 |
-| Bundesliga | Football | 78 |
-| Ligue 1 | Football | 61 |
-| UEFA Champions League | Football | 2 |
-| UEFA Europa League | Football | 3 |
-| NBA | Basketball | 12 |
-| EuroLeague | Basketball | 120 |
-
-### 4. Analysis flow
-
-There is no screening phase anymore. Every fetched fixture is enriched and sent to the expert model.
-
-Pipeline behavior:
-
-- every fixture is enriched with provider data before expert reasoning,
-- expert analysis runs for every fetched fixture unless an analysis checkpoint already exists,
-- low-quality or unsupported fixtures are filtered later by the publication gates rather than by a prefilter,
-- historical pick performance is not fed back into this stage automatically,
-- `FORCE_ANALYSIS=true` can bypass the scheduled-status and odds-market gates for testing.
-
-### 5. Enrichment and odds loading
-
-For each fixture, the pipeline enriches the match with:
+It adds:
 
 - structured API-Sports context,
-- provider-supported H2H and injuries where available,
-- available real bookmaker odds from The Odds API.
+- form / H2H / injuries / schedule context where supported,
+- bookmaker odds from The Odds API,
+- a compact local dossier built from prior entries in `data/event-intelligence.json`.
 
-The enrichment layer also computes an `availableOdds` block that includes:
+At this stage the app also persists a long-lived pre-match event snapshot containing:
 
-- home/draw/away prices,
-- totals prices,
-- BTTS prices for football,
-- the most commonly offered totals line across bookmakers,
-- bookmaker count.
+- fixture identity and timing metadata,
+- structured provider context,
+- normalized odds snapshot.
 
-### 6. Expert analysis phase
+That historical store is then used to build `cachedKnowledgeContext` for the expert prompt.
 
-The second AI pass produces the actual betting recommendation.
+### 5. Expert AI analysis in two OpenAI phases
 
-Operationally, expert analysis is split into two OpenAI phases:
+`analyzeMatch()` is split into two OpenAI passes:
 
-- a live-context web-search pass that gathers current form, injuries, tactical and motivation context,
-- the final structured JSON analysis pass that decides whether a pick is publishable.
+1. a live-context web-search pass,
+2. the final expert JSON analysis pass.
 
-The expert phase returns:
+The live-context pass:
 
-- `finalPick`,
-- `bestBettingMarket`,
-- `confidence`,
-- `shortReasoning`,
-- structured risk and quality information,
-- a flag indicating whether the model recommends publishing a pick at all.
+- uses the configured live-context model,
+- can use OpenAI prompt caching,
+- logs usage and web-search activity,
+- persists its scouting note into `data/event-intelligence.json`.
 
-The pipeline never publishes straight from expert output. It still has to pass the publication gate.
+The final expert pass receives:
 
-### 7. Publication gate
+- structured provider context,
+- the cached local dossier,
+- fresh live web context,
+- the real betting markets and odds.
 
-A pick can only be published when all of these pass:
+Its result is persisted in two places:
 
-1. the fixture status is acceptable,
-2. data quality is not low,
-3. the model explicitly recommends a pick,
-4. confidence is at least `MIN_CONFIDENCE_TO_PUBLISH`,
-5. the real market exists and its odds are at least `MIN_ACCEPTABLE_ODDS`,
-6. the fixture has not already been posted that day.
+- `data/checkpoints/{date}/analysis/{fixtureId}.json` for restart-safe reuse,
+- `data/event-intelligence.json` as the long-lived pre-match analysis snapshot.
 
-This is the main protection against low-value favorites, missing markets, stale fixtures, and duplicate sends.
+### 6. Publication gate
 
-### 8. Telegram publication
+The pipeline only returns results that pass all publication checks.
 
-When a fixture passes all gates:
+Current gate logic requires:
 
-- the message is formatted in Greek,
-- available odds are fetched and appended when possible,
-- the tip is sent to the configured Telegram group as a standalone message,
-- the dedup store is updated,
-- the pick is persisted to `data/picks-log.json` together with kickoff time,
-- halftime and full-time watchers are scheduled immediately.
+1. acceptable fixture status unless `FORCE_ANALYSIS=true`,
+2. data quality not equal to `low`,
+3. `isPickRecommended === true`,
+4. confidence at or above `MIN_CONFIDENCE_TO_PUBLISH`,
+5. a real market that exists and clears `MIN_ACCEPTABLE_ODDS` unless `FORCE_ANALYSIS=true`.
 
-Pre-match tips are not pinned. Weekly and monthly reports are pinned.
+Only then does the scheduler publish.
 
-Reply behavior is intentional:
+### 7. Publish, persist, and arm live watchers
 
-- pre-match tip: standalone group post,
-- halftime update: replies to the original pre-match tip,
-- full-time update: replies to the halftime update when one exists, otherwise to the original pre-match tip,
-- weekly and monthly reports: standalone pinned posts, not replies.
+When a fixture passes the gate, `publishSingleResult()`:
 
-### 9. Halftime updates
+1. formats the Greek pre-match Telegram message,
+2. posts it to the group,
+3. marks the fixture in the dedup store,
+4. writes a `PickRecord` into `data/picks-log.json`,
+5. does a best-effort prewarm of the API-Sports live binding,
+6. schedules the halftime watcher,
+7. schedules the full-time watcher.
 
-Each published pick gets its own independent halftime watcher.
+Important detail: the halftime watcher is always scheduled now, even if halftime commentary is disabled, because halftime data capture is part of the persistent intelligence pipeline.
 
-Current behavior:
+### 8. Halftime watcher and durable HT snapshot capture
 
-- start time: roughly `kickoff + 40 minutes`,
+Each published pick gets its own halftime watcher.
+
+Current runtime behavior:
+
+- start window: around `kickoff + 40 minutes`,
 - polling interval: every 10 minutes,
 - max attempts: 6,
-- trigger condition: the live-data provider status becomes `HT`, `half time`, or `halftime`.
+- trigger: provider status becomes `HT`, `half time`, or `halftime`.
 
-When halftime is detected, the bot:
+When halftime is detected, the bot now persists a durable halftime snapshot containing:
 
-1. fetches live score,
-2. fetches event stats,
-3. fetches lineup information when available,
-4. calls GPT with `web_search_preview`,
-5. generates a Greek halftime commentary,
-6. sends the halftime update to Telegram,
-7. records `halfTimeNotifiedAt` in `data/picks-log.json`.
+- live score and provider status,
+- provider stat lines,
+- lineups,
+- football incidents when available.
 
-The halftime prompt is opinionated:
+That snapshot is written to `data/event-intelligence.json`, and `halfTimeSnapshotCapturedAt` is written to `data/picks-log.json`.
 
-- it is anchored to the exact match date,
-- it asks for player-specific performance references when possible,
-- it classifies the tip as on track, at risk, or already lost,
-- it only mentions withdrawal when the prompt judges the pick as effectively dead,
-- markdown links are stripped from model output before posting.
+Then behavior splits by config:
 
-### 10. Full-time updates
+- `ENABLE_HALFTIME_COMMENTARY=true`: the bot also runs the halftime narrator, sends the Telegram reply, and writes `halfTimeNotifiedAt`.
+- `ENABLE_HALFTIME_COMMENTARY=false`: no halftime reply is sent, but the HT snapshot is still captured and kept forever.
 
-Each published pick also gets its own independent full-time watcher.
+### 9. Full-time watcher, result resolution, and durable FT snapshot capture
 
-Current behavior:
+Each published pick also gets its own full-time watcher.
 
-- start time: roughly `kickoff + 85 minutes`,
+Current runtime behavior:
+
+- start window: around `kickoff + 85 minutes`,
 - polling interval: every 10 minutes,
 - max attempts: 12,
-- trigger condition: the live-data provider status becomes `FT`, `AET`, `AOT`, `Pen`, or `full time`.
+- trigger: provider status becomes `FT`, `AET`, `AOT`, `Pen`, or `full time`.
 
-When full-time is detected, the bot:
+When full time is detected, the bot:
 
 1. fetches final score,
-2. determines the betting outcome from `bestBettingMarket` plus the final score,
-3. fetches event stats and lineups,
-4. calls GPT with a full-time prompt,
-5. posts a Greek win/loss/push breakdown,
-6. updates `outcome`, `actualScore`, `resolvedAt`, and `fullTimeNotifiedAt` in `data/picks-log.json`.
+2. fetches provider stats,
+3. fetches lineups,
+4. fetches football incidents when available,
+5. stores the durable FT snapshot in `data/event-intelligence.json`,
+6. writes `fullTimeSnapshotCapturedAt` in `data/picks-log.json`,
+7. resolves the betting outcome from `bestBettingMarket + final score`,
+8. sends either a short result reply or a full AI narrative reply depending on `ENABLE_FULLTIME_COMMENTARY`,
+9. updates `outcome`, `actualScore`, `resolvedAt`, and `fullTimeNotifiedAt` in `data/picks-log.json`,
+10. writes a resolved retrospective summary back into `data/event-intelligence.json`.
 
-The full-time narrator changes tone based on the actual result:
+By the end of the match, the app has both pre-match intelligence and post-match evidence stored permanently.
 
-- win: celebratory explanation of what went right,
-- loss: short objective post-mortem and why the pick failed,
-- push: neutral explanation of how the line landed exactly.
+### 10. The next day: daily OpenAI spend report
 
-### 11. Reports
+The next operational step is the spend cron.
 
-The report system works off `data/picks-log.json`.
+It runs on `DAILY_SPEND_CRON` in `TIMEZONE`.
+
+Current default: `30 9 * * *` in `Europe/Athens`.
+
+When it fires, `runDailyOpenAISpendReport()`:
+
+1. targets `yesterdayInTimeZone(TIMEZONE)`,
+2. reads `data/openai-usage.ndjson`,
+3. filters rows by fixture date, not by the last 24 hours,
+4. aggregates requests, tokens, cached tokens, reasoning tokens, and web-search calls,
+5. prices them in USD by model and scope,
+6. sends the report to operator Telegram chats.
+
+That is why late-night or after-midnight calls can still be charged to the correct previous fixture slate.
+
+### 11. Weekly and monthly reports
+
+The report cron runs every Monday at 10:00 Athens.
 
 Weekly report:
 
-- runs every Monday at 10:00 Athens time,
 - covers the previous 7 days,
-- resolves any still-pending outcomes before generating the report,
-- posts the message pinned.
+- resolves any still-pending outcomes first,
+- generates a narrative,
+- posts and pins the report.
 
 Monthly report:
 
 - runs only on the first Monday of the month,
 - covers the previous calendar month excluding the final 7 days,
-- avoids duplicating the same window already covered by the weekly report,
+- avoids overlapping the same window already covered by the weekly report,
 - also posts pinned.
 
-### 12. Historical record and learning
+### 12. Long-lived state carried across days
 
-The bot keeps a long-lived historical record of published picks and resolved outcomes, but that history is not currently used as an automatic self-learning loop.
+By the time the next day starts, the bot has accumulated four persistent layers:
 
-What the bot does use history for:
+1. `data/checkpoints/{date}/fixtures.json` and `analysis/{fixtureId}.json` for restart-safe planning and analysis reuse,
+2. `data/picks-log.json` for published picks, Telegram ids, watcher state, and resolved outcomes,
+3. `data/openai-usage.ndjson` for per-call OpenAI usage accounting,
+4. `data/event-intelligence.json` for reusable event intelligence: provider context, odds, live-context note, pre-match analysis, halftime snapshot, full-time snapshot, and resolved retrospective summary.
 
-- weekly and monthly reporting,
-- full-time result resolution and post-match bookkeeping,
-- rebuilding halftime/full-time watchers after restart,
-- operational audit of what was posted, when, and with what confidence.
-
-What the bot does not do today:
-
-- automatic threshold recalibration from past win/loss rate,
-- automatic prompt rewriting from historical performance,
-- automatic league or market weighting based on past outcomes,
-- model fine-tuning or retraining from `data/picks-log.json`.
-
-Any improvement in pick quality is therefore manual at the moment: code changes, prompt updates, config tuning, or provider improvements.
+That event-intelligence file is the long-lived local memory that future enrich/live-context runs consult before spending more online search tokens.
 
 ## Providers and external dependencies
 
@@ -351,6 +342,7 @@ Additional runtime behavior:
 - live-context and report web-search calls are executed through the Responses API streaming path,
 - web-search activity and reasoning summaries are logged while the call is in flight,
 - transient OpenAI failures such as rate limits and timeouts are retried with backoff,
+- live-context requests can use OpenAI prompt caching through `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_KEY` and `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION`,
 - `openai-usage` lines are written for successful calls so token usage can be audited from logs,
 - structured OpenAI usage rows are also appended to `data/openai-usage.ndjson` and used by the daily spend report.
 
@@ -360,10 +352,9 @@ API-Sports is the only sports-data provider used by the app for:
 
 - fixture discovery,
 - pre-match structured enrichment,
-
 - football halftime/full-time live status,
 - football full-time result resolution for reports,
-- football embedded fixture statistics and lineups,
+- football live statistics, lineups, and incident timelines,
 - basketball halftime/full-time live status,
 - basketball full-time result resolution for reports,
 - basketball quarter-by-quarter score breakdown used as lightweight live stats.
@@ -492,10 +483,29 @@ Each record stores:
 - live-data provider binding for later polling and result resolution,
 - resolved outcome,
 - actual score,
+- `halfTimeSnapshotCapturedAt`,
 - `halfTimeNotifiedAt`,
+- `fullTimeSnapshotCapturedAt`,
 - `fullTimeNotifiedAt`.
 
 This file is the base for weekly and monthly reporting.
+
+### Event intelligence cache
+
+`data/event-intelligence.json` is the long-lived local intelligence store.
+
+Each fixture entry can store:
+
+- fixture identity and kickoff metadata,
+- structured provider context,
+- normalized pre-match odds snapshot,
+- saved live-context note,
+- saved pre-match expert analysis,
+- durable halftime snapshot,
+- durable full-time snapshot,
+- resolved retrospective summary.
+
+This file is used to build `cachedKnowledgeContext` for future fixtures so the model can reuse historical team / league context before doing new web search.
 
 ### Telegram log subscriber store
 
@@ -537,8 +547,12 @@ Important implementation detail:
 | `OPENAI_REPORT_MODEL` | `gpt-5.4` | Model for weekly and monthly report narratives |
 | `OPENAI_COMMENTARY_EFFORT` | `high` | Reasoning effort for halftime and full-time commentary |
 | `OPENAI_REPORT_EFFORT` | `high` | Reasoning effort for report narratives |
-| `OPENAI_LIVE_CONTEXT_EFFORT` | `medium` | Reasoning effort for the live web-search context fetch |
+| `OPENAI_LIVE_CONTEXT_EFFORT` | `high` | Reasoning effort for the live web-search context fetch |
+| `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_KEY` | `expert-live-context-v1` | Shared routing key used to improve prompt-cache hit rate for live-context requests |
+| `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION` | `24h` | Prompt-cache retention policy for live-context requests |
 | `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for the final expert analysis |
+| `ENABLE_HALFTIME_COMMENTARY` | `false` | If `false`, no halftime reply is sent, but halftime snapshots are still captured |
+| `ENABLE_FULLTIME_COMMENTARY` | `false` | If `false`, the final reply is short and contains no AI commentary |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |
 | `TELEGRAM_LOG_CHAT_ID` | `""` | Optional fixed private Telegram chat id for runtime logs |
 | `TELEGRAM_LOG_LEVEL` | `info` | Minimum severity forwarded to private Telegram log delivery |

@@ -184,8 +184,8 @@ async function resolveEventId(
 
   const list = events.map((event, index) => `${index}: ${event.home_team} vs ${event.away_team}`).join('\n');
   const prompt =
-    `Which event matches this fixture?\nHome: ${homeTeam}\nAway: ${awayTeam}\n\n` +
-    `Events:\n${list}\n\nReply with only the integer index, or -1 if none match.`;
+    `Ποιο event αντιστοιχεί σε αυτό το fixture;\nΓηπεδούχος: ${homeTeam}\nΦιλοξενούμενος: ${awayTeam}\n\n` +
+    `Διαθέσιμα events:\n${list}\n\nΑπάντησε μόνο με τον ακέραιο index ή με -1 αν δεν υπάρχει σωστή αντιστοίχιση.`;
 
   try {
     const resp = await openai.responses.create({

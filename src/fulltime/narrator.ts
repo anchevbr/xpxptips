@@ -70,6 +70,7 @@ export async function generateFulltimeNarrative(
     (lineupBlock ? `👥 ΕΝΔΕΚΑΔΕΣ:\n${lineupBlock}\n\n` : '') +
     `📝 ΟΔΗΓΙΕΣ:\n` +
     `Γράψε ακριβώς 3–4 προτάσεις στα ελληνικά. ${outcomeInstruction}\n` +
+    `Γράψε όλα τα ονόματα ομάδων, παικτών και προπονητών με ελληνικούς χαρακτήρες, ποτέ σε λατινικό αλφάβητο. Μην αλλάζεις betting labels ή ονομασίες διοργανώσεων.\n` +
     `Μόνο το κείμενο. Χωρίς τίτλο, χωρίς bullets. Χωρίς links, domains ή παραπομπές σε πηγές.`;
 
   return runCommentaryPrompt({

@@ -6,7 +6,7 @@
 // users whether to stay in or consider withdrawing the bet.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { assessHalftimeTipState, halftimeStatusLabel } from './tip-state';
+import { assessHalftimeTipState } from './tip-state';
 import {
   formatCommentaryLineupBlock,
   formatCommentaryStatsBlock,
@@ -68,11 +68,12 @@ export async function generateHalftimeNarrative(
     `Πρόταση: "${pick.finalPick}" (market: ${pick.bestBettingMarket})\n` +
     `Σκορ Ημιχρόνου: ${scoreStr}\n\n` +
     `🧠 ΑΡΧΙΚΗ PRE-MATCH ΛΟΓΙΚΗ:\n${preMatchReasoning}\n\n` +
-    `📍 ΚΑΤΑΣΤΑΣΗ ΣΤΟ ΗΜΙΧΡΟΝΟ: ${halftimeStatusLabel(halftimeState)}\n\n` +
     `📊 ΣΤΑΤΙΣΤΙΚΑ ΗΜΙΧΡΟΝΟΥ:\n${statsBlock}\n\n` +
     (lineupBlock ? `👥 ΕΝΔΕΚΑΔΕΣ:\n${lineupBlock}\n\n` : '') +
     `📝 ΟΔΗΓΙΕΣ:\n` +
     `${stateInstruction}\n` +
+    `Γράψε όλα τα ονόματα ομάδων, παικτών και προπονητών με ελληνικούς χαρακτήρες, ποτέ σε λατινικό αλφάβητο. Μην αλλάζεις betting labels ή ονομασίες διοργανώσεων.\n` +
+    `Μην χρησιμοποιήσεις ρητές ετικέτες τύπου "είναι σε καλό δρόμο" ή "είναι σε κίνδυνο". Αυτό να προκύπτει φυσικά από την ανάλυση.\n` +
     `Αν βάλεις ονόματα παικτών ή match events, να είναι από ΑΥΤΟ το ματς σήμερα.\n` +
     `1. Αναφέρουν έναν ή δύο συγκεκριμένους παίκτες με στατιστικά ΑΠΟ ΑΥΤΟ ΤΟ ΜΑΤΣ σήμερα (πχ "Ο Σλούκας έχει 12 πόντους", "Ο Ρονάλντο έχει σκοράρει"). Αν δεν βρεις στατιστικά παικτών για το συγκεκριμένο ματς, αναφέρεις το πιο λαμπρό στατιστικό ομάδας από τα παραπάνω δεδομένα.\n` +
     `2. Να δείχνουν αν επιβεβαιώθηκε ή διαψεύστηκε η αρχική μας ιδέα μέχρι στιγμής.\n` +

@@ -7,11 +7,19 @@
 // until the live-data provider reports "FT" / "AET" / "Pen". Fires at most once per fixture.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { config } from '../config';
+import { recordFulltimeSnapshot } from '../cache/event-intelligence';
 import { logger } from '../utils/logger';
 import { buildInlineKeyStats } from '../utils/commentary';
 import { sendToGroup } from '../bot/telegram';
-import { getPickByFixtureId, updateFulltimeNotified, updateOutcome } from '../reports/picks-store';
 import {
+  getPickByFixtureId,
+  updateFulltimeNotified,
+  updateFulltimeSnapshotCaptured,
+  updateOutcome,
+} from '../reports/picks-store';
+import {
+  fetchEventIncidents,
   fetchLiveStatus,
   fetchEventStats,
   fetchEventLineup,
@@ -30,6 +38,32 @@ function outcomeEmoji(outcome: 'win' | 'loss' | 'push'): string {
   if (outcome === 'win') return '✅💸🔥';
   if (outcome === 'loss') return '🚨💔❌';
   return '↩️⚖️';
+}
+
+function formatShortFulltimeMessage(
+  pick: PickRecord,
+  homeScore: number | null,
+  awayScore: number | null,
+  outcome: 'win' | 'loss' | 'push',
+): string {
+  const scoreDisplay =
+    homeScore !== null && awayScore !== null
+      ? `${homeScore}–${awayScore}`
+      : '?–?';
+
+  const header =
+    outcome === 'win'
+      ? '✅ <b>Win</b>'
+      : outcome === 'loss'
+      ? '❌ <b>Loss</b>'
+      : '↩️ <b>Push</b>';
+
+  return (
+    `${header}\n\n` +
+    `🏟️ <b>${pick.homeTeam} vs ${pick.awayTeam}</b>\n` +
+    `⚽ Τελικό σκορ: <b>${scoreDisplay}</b>\n` +
+    `🎯 Πρόταση: <b>${pick.finalPick}</b>`
+  );
 }
 
 /** Formats the Telegram full-time update message (HTML) */
@@ -95,8 +129,26 @@ async function attemptFulltimeNotification(pick: PickRecord): Promise<boolean> {
 
   const stats = await fetchEventStats(currentPick);
   const lineup = await fetchEventLineup(currentPick);
-  const narrative = await generateFulltimeNarrative(currentPick, homeScore, awayScore, outcome, stats, lineup);
-  const message = formatFulltimeMessage(currentPick, homeScore, awayScore, outcome, stats, narrative);
+  const incidents = await fetchEventIncidents(currentPick);
+
+  recordFulltimeSnapshot(currentPick, {
+    status: live.status,
+    homeScore,
+    awayScore,
+    stats,
+    lineup,
+    incidents,
+  });
+  updateFulltimeSnapshotCaptured(currentPick.fixtureId);
+
+  let message: string;
+  if (config.liveUpdates.fulltimeCommentaryEnabled) {
+    const narrative = await generateFulltimeNarrative(currentPick, homeScore, awayScore, outcome, stats, lineup);
+    message = formatFulltimeMessage(currentPick, homeScore, awayScore, outcome, stats, narrative);
+  } else {
+    message = formatShortFulltimeMessage(currentPick, homeScore, awayScore, outcome);
+  }
+
   const fullTimeMessageId = await sendToGroup(message, {
     replyToMessageId: currentPick.halfTimeMessageId ?? currentPick.tipMessageId ?? undefined,
   });

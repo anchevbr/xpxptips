@@ -77,6 +77,7 @@ function resolvePickKickoffAt(
 
 function recoverPublishedWatchers(): void {
   const { timezone } = config.scheduler;
+  const halftimeEnabled = config.liveUpdates.halftimeCommentaryEnabled;
   const recentDates = new Set([
     yesterdayInTimeZone(timezone),
     todayInTimeZone(timezone),
@@ -85,7 +86,7 @@ function recoverPublishedWatchers(): void {
   const fixturesByDate = new Map<string, Fixture[] | null>();
   const candidatePicks = getAllPicks().filter(
     pick =>
-      (!pick.halfTimeNotifiedAt || !pick.fullTimeNotifiedAt) &&
+      (((halftimeEnabled ? !pick.halfTimeNotifiedAt : !pick.halfTimeSnapshotCapturedAt) || !pick.fullTimeNotifiedAt)) &&
       (pick.kickoffAt || recentDates.has(pick.date))
   );
 

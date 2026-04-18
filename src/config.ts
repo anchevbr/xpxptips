@@ -35,6 +35,12 @@ export const config = {
     model: optional('OPENAI_MODEL', 'gpt-5.4'),
     /** Optional override for the live web-search context fetch before expert analysis */
     liveContextModel: optional('OPENAI_LIVE_CONTEXT_MODEL', optional('OPENAI_MODEL', 'gpt-5.4')),
+    /** Shared routing key to improve prompt-cache hit rate across repeated live-context requests. */
+    liveContextPromptCacheKey: optional('OPENAI_LIVE_CONTEXT_PROMPT_CACHE_KEY', 'expert-live-context-v1'),
+    /** Prompt-cache retention policy for live-context requests. */
+    liveContextPromptCacheRetention: optional('OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION', '24h') as
+      | 'in_memory'
+      | '24h',
     /** Model used by halftime/full-time live commentary updates */
     commentaryModel: optional('OPENAI_COMMENTARY_MODEL', 'gpt-5.4'),
     /** Model used by weekly/monthly report narratives */
@@ -86,6 +92,13 @@ export const config = {
     timezone: optional('TIMEZONE', 'Europe/Athens'),
     /** How many hours before kickoff to run analysis and send immediately if approved (default: 4) */
     analysisHoursBeforeKickoff: optionalNumber('ANALYSIS_HOURS_BEFORE_KICKOFF', 4),
+  },
+
+  liveUpdates: {
+    /** If false, no halftime reply is sent for published picks. */
+    halftimeCommentaryEnabled: optionalBool('ENABLE_HALFTIME_COMMENTARY', true),
+    /** If false, the full-time reply is a short result-only update with no AI commentary. */
+    fulltimeCommentaryEnabled: optionalBool('ENABLE_FULLTIME_COMMENTARY', true),
   },
 
   analysis: {
