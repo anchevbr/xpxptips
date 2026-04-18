@@ -32,42 +32,42 @@ export const config = {
 
   openai: {
     apiKey: required('OPENAI_API_KEY'),
-    model: optional('OPENAI_MODEL', 'gpt-5.4'),
+    model: optional('OPENAI_MODEL', 'gpt-5.4-nano'),
     /** Optional override for the live web-search context fetch before expert analysis */
-    liveContextModel: optional('OPENAI_LIVE_CONTEXT_MODEL', optional('OPENAI_MODEL', 'gpt-5.4')),
+    liveContextModel: optional('OPENAI_LIVE_CONTEXT_MODEL', optional('OPENAI_MODEL', 'gpt-5.4-nano')),
     /** Shared routing key to improve prompt-cache hit rate across repeated live-context requests. */
     liveContextPromptCacheKey: optional('OPENAI_LIVE_CONTEXT_PROMPT_CACHE_KEY', 'expert-live-context-v1'),
     /** Prompt-cache retention policy for live-context requests. */
-    liveContextPromptCacheRetention: optional('OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION', '24h') as
+    liveContextPromptCacheRetention: optional('OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION', 'in_memory') as
       | 'in_memory'
       | '24h',
     /** Model used by halftime/full-time live commentary updates */
-    commentaryModel: optional('OPENAI_COMMENTARY_MODEL', 'gpt-5.4'),
+    commentaryModel: optional('OPENAI_COMMENTARY_MODEL', 'gpt-5.4-nano'),
     /** Model used by weekly/monthly report narratives */
-    reportModel: optional('OPENAI_REPORT_MODEL', 'gpt-5.4'),
+    reportModel: optional('OPENAI_REPORT_MODEL', 'gpt-5.4-nano'),
     /** Reasoning effort for halftime/full-time commentary calls */
-    commentaryEffort: optional('OPENAI_COMMENTARY_EFFORT', 'high') as
+    commentaryEffort: optional('OPENAI_COMMENTARY_EFFORT', 'xhigh') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
     /** Reasoning effort for weekly/monthly report narrative calls */
-    reportEffort: optional('OPENAI_REPORT_EFFORT', 'high') as
+    reportEffort: optional('OPENAI_REPORT_EFFORT', 'xhigh') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
     /** Reasoning effort for the live web-search context fetch before expert analysis */
-    liveContextEffort: optional('OPENAI_LIVE_CONTEXT_EFFORT', 'medium') as
+    liveContextEffort: optional('OPENAI_LIVE_CONTEXT_EFFORT', 'xhigh') as
       | 'minimal'
       | 'low'
       | 'medium'
       | 'high'
       | 'xhigh',
     /** Reasoning effort for the final expert betting analysis */
-    expertEffort: optional('OPENAI_EXPERT_EFFORT', 'high') as
+    expertEffort: optional('OPENAI_EXPERT_EFFORT', 'xhigh') as
       | 'minimal'
       | 'low'
       | 'medium'

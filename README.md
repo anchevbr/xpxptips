@@ -329,11 +329,11 @@ Current model usage in the codebase:
 
 | Use case | Model |
 | --- | --- |
-| Expert analysis | `gpt-5.4` |
-| Halftime commentary | `gpt-5.4` |
-| Full-time commentary | `gpt-5.4` |
-| Odds event-name matching | `gpt-5.4` |
-| Report narratives | `gpt-5.4` |
+| Expert analysis | `gpt-5.4-nano` |
+| Halftime commentary | `gpt-5.4-nano` |
+| Full-time commentary | `gpt-5.4-nano` |
+| Odds event-name matching | `gpt-5.4-nano` |
+| Report narratives | `gpt-5.4-nano` |
 
 The model is used for reasoning and explanation. Fixtures, live statuses, stats, and odds come from provider APIs.
 
@@ -388,7 +388,7 @@ The Odds API is used for Gate 5 and odds display.
 Current behavior:
 
 - resolve canonical event identity first through the free `/events` endpoint,
-- use `gpt-5.4` to match provider team-name variants,
+- use `gpt-5.4-nano` to match provider team-name variants,
 - fetch the selected event's odds afterward,
 - use only the `eu` region from The Odds API,
 - average odds across bookmakers for validation and display,
@@ -541,16 +541,16 @@ Important implementation detail:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_MODEL` | `gpt-5.4` | Main model for expert analysis and odds event matching |
+| `OPENAI_MODEL` | `gpt-5.4-nano` | Main model for expert analysis and odds event matching |
 | `OPENAI_LIVE_CONTEXT_MODEL` | `OPENAI_MODEL` | Optional model override for the live web-search context fetch |
-| `OPENAI_COMMENTARY_MODEL` | `gpt-5.4` | Model for halftime and full-time commentary |
-| `OPENAI_REPORT_MODEL` | `gpt-5.4` | Model for weekly and monthly report narratives |
-| `OPENAI_COMMENTARY_EFFORT` | `high` | Reasoning effort for halftime and full-time commentary |
-| `OPENAI_REPORT_EFFORT` | `high` | Reasoning effort for report narratives |
-| `OPENAI_LIVE_CONTEXT_EFFORT` | `high` | Reasoning effort for the live web-search context fetch |
+| `OPENAI_COMMENTARY_MODEL` | `gpt-5.4-nano` | Model for halftime and full-time commentary |
+| `OPENAI_REPORT_MODEL` | `gpt-5.4-nano` | Model for weekly and monthly report narratives |
+| `OPENAI_COMMENTARY_EFFORT` | `xhigh` | Reasoning effort for halftime and full-time commentary |
+| `OPENAI_REPORT_EFFORT` | `xhigh` | Reasoning effort for report narratives |
+| `OPENAI_LIVE_CONTEXT_EFFORT` | `xhigh` | Reasoning effort for the live web-search context fetch |
 | `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_KEY` | `expert-live-context-v1` | Shared routing key used to improve prompt-cache hit rate for live-context requests |
-| `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION` | `24h` | Prompt-cache retention policy for live-context requests |
-| `OPENAI_EXPERT_EFFORT` | `high` | Reasoning effort for the final expert analysis |
+| `OPENAI_LIVE_CONTEXT_PROMPT_CACHE_RETENTION` | `in_memory` | Prompt-cache retention policy for live-context requests |
+| `OPENAI_EXPERT_EFFORT` | `xhigh` | Reasoning effort for the final expert analysis |
 | `ENABLE_HALFTIME_COMMENTARY` | `false` | If `false`, no halftime reply is sent, but halftime snapshots are still captured |
 | `ENABLE_FULLTIME_COMMENTARY` | `false` | If `false`, the final reply is short and contains no AI commentary |
 | `OPENAI_TIMEOUT_MS` | `90000` | Timeout per OpenAI call |

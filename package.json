@@ -1,7 +1,7 @@
 {
   "name": "ai-betting-bot",
   "version": "1.0.0",
-  "description": "AI-powered betting tips Telegram bot using GPT-5.4 and the OpenAI Responses API",
+  "description": "AI-powered betting tips Telegram bot using GPT-5.4-nano and the OpenAI Responses API",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
